@@ -8,6 +8,7 @@ import { Astrologer } from "./models/astrologer/astroler.model.js";
 import {
   handleCallRequest,
   handleCallResponse,
+  handleCancelRequest,
   handleChatMessage,
   handleChatRequest,
   handleChatResponse,
@@ -254,6 +255,19 @@ export const setupSocketIO = (server) => {
 
       // Call the function to handle the end of the chat, passing the sender
       await handleEndCall(io, roomId, sender);
+    });
+
+    // Handle cancel/close chat or call request by user
+    socket.on("cancel-request", async (data) => {
+      // const { requestId, userId, requestType } = data; // requestType: 'chat' or 'call'
+
+      try {
+        // Call the function to handle request cancellation
+        await handleCancelRequest(io, data, socket);
+      } catch (error) {
+        console.error("Error canceling request:", error);
+        socket.emit("error", { message: "Error canceling request." });
+      }
     });
 
     // Handle user disconnection

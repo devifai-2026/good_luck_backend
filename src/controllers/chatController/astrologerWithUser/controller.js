@@ -20,7 +20,7 @@ import AgoraAccessToken from "agora-access-token";
 export async function handleChatRequest(io, data, socket) {
   try {
     const { userId, astrologerId, chatType } = data;
-    console.log(userId, astrologerId, chatType);
+    // console.log(userId, astrologerId, chatType);
 
     // Retrieve the astrologer's details to get the socket ID and status
     const astrologer = await Astrologer.findById(astrologerId);
@@ -55,13 +55,13 @@ export async function handleChatRequest(io, data, socket) {
         .emit("chat-error", { message: "Insufficient funds." });
     }
 
-    console.log(costPerMinute);
+    // console.log(costPerMinute);
 
     // Save the chat request in the database
     const chatRequest = new ChatRequest({ userId, astrologerId, chatType });
     await chatRequest.save();
 
-    console.log(chatRequest);
+    // console.log(chatRequest);
 
     // Notify the astrologer about the incoming chat request using their socket ID
     console.log(
@@ -383,12 +383,12 @@ export async function handleCallRequest(io, data, socket) {
     const finalUserUid = userUid || Math.floor(Math.random() * 100000);
     const astrologerUid = Math.floor(Math.random() * 100000);
 
-    console.log(
-      "🆔 UIDs for call - User:",
-      finalUserUid,
-      "Astrologer:",
-      astrologerUid
-    );
+    // console.log(
+    //   "🆔 UIDs for call - User:",
+    //   finalUserUid,
+    //   "Astrologer:",
+    //   astrologerUid
+    // );
 
     // Function to generate Agora token
     const generateAgoraToken = (
@@ -431,65 +431,67 @@ export async function handleCallRequest(io, data, socket) {
     io.to(astrologer.socketId).emit("call-request-from-user", {
       requestId: callRequest._id,
       userId,
+      Fname: user?.Fname,
+      Lname: user?.Lname,
+      profile_picture: user?.profile_picture,
       callType,
       channelName,
-      userUid: finalUserUid, // ✅ User's UID (2230)
-      astrologerUid: astrologerUid, // ✅ Astrologer's UID (86014)
-      clientToken: astrologerToken, // ✅ Astrologer's token
+      userUid: finalUserUid,
+      astrologerUid: astrologerUid,
+      clientToken: astrologerToken,
       astrologerToken: astrologerToken,
       appId: appID,
     });
 
-    // User কে data পাঠানোর সময়
     io.to(user.socketId).emit("call-details", {
       requestId: callRequest._id,
       astrologerId,
       callType,
       channelName,
-      userUid: finalUserUid, // ✅ User's UID (2230)
-      astrologerUid: astrologerUid, // ✅ Astrologer's UID (86014)
-      clientToken: clientToken, // ✅ User's token
+      userUid: finalUserUid,
+      astrologerUid: astrologerUid,
+      clientToken: clientToken,
       astrologerToken: astrologerToken,
       appId: appID,
     });
 
-    console.log("✅ Final verified call details:");
-    console.log(
-      "📤 To ASTROLOGER - userUid:",
-      finalUserUid,
-      "astrologerUid:",
-      astrologerUid
-    );
-    console.log(
-      "📤 To USER - userUid:",
-      finalUserUid,
-      "astrologerUid:",
-      astrologerUid
-    );
+    // console.log("✅ Final verified call details:");
+    // console.log(
+    //   "📤 To ASTROLOGER - userUid:",
+    //   finalUserUid,
+    //   "astrologerUid:",
+    //   astrologerUid
+    // );
+    // console.log(
+    //   "📤 To USER - userUid:",
+    //   finalUserUid,
+    //   "astrologerUid:",
+    //   astrologerUid
+    // );
 
-    console.log("✅ Final call details summary:");
-    console.log("- User UID:", finalUserUid);
-    console.log("- Astrologer UID:", astrologerUid);
-    console.log("- Channel:", channelName);
-    console.log("- User Token:", clientToken?.substring(0, 20) + "...");
-    console.log(
-      "- Astrologer Token:",
-      astrologerToken?.substring(0, 20) + "..."
-    );
+    // console.log("✅ Final call details summary:");
+    // console.log("- User UID:", finalUserUid);
+    // console.log("- Astrologer UID:", astrologerUid);
+    // console.log("- Channel:", channelName);
+    // console.log("- User Token:", clientToken?.substring(0, 20) + "...");
+    // console.log(
+    //   "- Astrologer Token:",
+    //   astrologerToken?.substring(0, 20) + "..."
+    // );
 
-    console.log("📤 Sending to USER:", {
-      userUid: finalUserUid,
-      astrologerUid: astrologerUid, // ✅ এই line নিশ্চিত করুন
-      channelName: channelName,
-    });
+    // console.log("📤 Sending to USER:", {
+    //   userUid: finalUserUid,
+    //   astrologerUid: astrologerUid, // ✅ এই line নিশ্চিত করুন
+    //   channelName: channelName,
+    // });
 
-    console.log("📤 Sending to ASTROLOGER:", {
-      userUid: finalUserUid,
-      astrologerUid: astrologerUid,
-      channelName: channelName,
-    });
+    // console.log("📤 Sending to ASTROLOGER:", {
+    //   userUid: finalUserUid,
+    //   astrologerUid: astrologerUid,
+    //   channelName: channelName,
+    // });
 
-    console.log("✅ Call details sent to user with consistent UIDs");
+    // console.log("✅ Call details sent to user with consistent UIDs");
   } catch (error) {
     console.error("❌ Error handling call request:", error);
     socket.emit("error", { message: "Error processing call request." });
@@ -612,6 +614,63 @@ export async function handleEndCall(io, roomId, sender) {
     console.log("Astrologer's status updated to available:", astrologer._id);
   } catch (error) {
     console.error("Error handling end of call:", error);
+  }
+}
+
+// Function to handle cancellation of chat/call request by user
+export async function handleCancelRequest(io, data, socket) {
+  try {
+    const { requestId, userId, requestType } = data;
+
+    console.log(`Canceling ${requestType} request:`, { requestId, userId });
+
+    // Find the request in the database
+    const request = await ChatRequest.findById(requestId);
+    if (!request) {
+      return socket.emit("error", { message: "Request not found." });
+    }
+
+    // Verify that the request belongs to the user trying to cancel it
+    if (request.userId.toString() !== userId) {
+      return socket.emit("error", {
+        message: "You are not authorized to cancel this request.",
+      });
+    }
+
+    // Check if request is already processed
+    if (request.status !== "pending") {
+      return socket.emit("error", {
+        message: `Request already ${request.status}. Cannot cancel.`,
+      });
+    }
+
+    // Update request status to 'cancelled'
+    request.status = "cancelled";
+    await request.save();
+
+    // Find the astrologer to notify
+    const astrologer = await Astrologer.findById(request.astrologerId);
+    if (astrologer && astrologer.socketId) {
+      // Notify astrologer about the cancellation
+      io.to(astrologer.socketId).emit("request-cancelled", {
+        requestId,
+        userId,
+        requestType,
+        message: `User cancelled the ${requestType} request.`,
+      });
+      console.log(`Notified astrologer about ${requestType} cancellation`);
+    }
+
+    // Also notify the user that cancellation was successful
+    socket.emit("request-cancelled-success", {
+      requestId,
+      message: `${requestType} request cancelled successfully.`,
+    });
+
+    console.log(`${requestType} request cancelled successfully:`, requestId);
+  } catch (error) {
+    console.error("Error handling request cancellation:", error);
+    socket.emit("error", { message: "Error cancelling request." });
   }
 }
 

@@ -12,7 +12,7 @@ const chatRequestSchema = new Schema(
     },
     status: {
       type: String,
-      enum: ["pending", "accepted", "rejected"],
+      enum: ["pending", "accepted", "rejected", "cancelled", "ended"],
       default: "pending",
     },
     channelName: {
