@@ -104,6 +104,32 @@ export async function handleChatResponse(io, data) {
       return;
     }
 
+    // Check if request was already cancelled by user
+    if (chatRequest.status === "user_cancelled") {
+      // Find astrologer and notify them
+      const astrologer = await Astrologer.findById(chatRequest.astrologerId);
+      if (astrologer && astrologer.socketId) {
+        io.to(astrologer.socketId).emit("chat-request-expired", {
+          requestId,
+          message: "User has cancelled this chat request.",
+        });
+      }
+      return;
+    }
+
+    // Check if request is no longer pending
+    if (chatRequest.status !== "pending") {
+      // Find astrologer and notify them
+      const astrologer = await Astrologer.findById(chatRequest.astrologerId);
+      if (astrologer && astrologer.socketId) {
+        io.to(astrologer.socketId).emit("chat-request-expired", {
+          requestId,
+          message: `This request is already ${chatRequest.status}.`,
+        });
+      }
+      return;
+    }
+
     chatRequest.status = response;
     await chatRequest.save();
 
@@ -131,11 +157,30 @@ export async function handleChatResponse(io, data) {
       const userSocketId = user.socketId;
       const astrologerSocketId = astrologerUser.socketId;
 
+      // Check if user is still online before creating chat room
       if (userSocketId) {
         // Notify the user about chat acceptance
         io.to(userSocketId).emit("chat-accepted", { roomId });
       } else {
-        console.error("User is not online");
+        console.error("User is not online - cannot start chat");
+
+        // Notify astrologer that user is offline
+        if (astrologerSocketId) {
+          io.to(astrologerSocketId).emit("user-offline-for-chat", {
+            requestId,
+            message: "User is not online. Chat cannot be started.",
+          });
+        }
+
+        // Revert astrologer status
+        astrologerUser.status = "available";
+        await astrologerUser.save();
+
+        // Update request status
+        chatRequest.status = "expired";
+        await chatRequest.save();
+
+        return;
       }
 
       if (astrologerSocketId) {
@@ -145,14 +190,16 @@ export async function handleChatResponse(io, data) {
         console.error("Astrologer is not online");
       }
 
-      // Start the chat billing process
-      startChat(
-        io,
-        roomId,
-        chatRequest.chatType,
-        chatRequest.userId,
-        chatRequest.astrologerId
-      );
+      // Start the chat billing process only if both are online
+      if (userSocketId && astrologerSocketId) {
+        startChat(
+          io,
+          roomId,
+          chatRequest.chatType,
+          chatRequest.userId,
+          chatRequest.astrologerId
+        );
+      }
     } else {
       // Handle rejection logic
       const user = await User.findById(chatRequest.userId);
@@ -856,3 +903,247 @@ export const getChatList = asyncHandler(async (req, res) => {
     res.status(500).json(new ApiResponse(500, null, error.message));
   }
 });
+
+// Function to handle chat room rejoin
+export async function handleRejoinChatRoom(io, data, socket) {
+  try {
+    const { roomId, userId, userType } = data; // userType: 'user' or 'astrologer'
+
+    console.log(
+      `Attempting to rejoin chat room: ${roomId} by ${userType}: ${userId}`
+    );
+
+    // Find the chat request/room
+    const chatRequest = await ChatRequest.findOne({
+      roomId,
+      status: { $in: ["accepted", "ongoing"] }, // Allow both accepted and ongoing status
+    });
+
+    if (!chatRequest) {
+      return socket.emit("rejoin-error", {
+        message: "Chat session not found or has ended.",
+      });
+    }
+
+    // Verify user's access to this room
+    let hasAccess = false;
+    if (userType === "user" && chatRequest.userId.toString() === userId) {
+      hasAccess = true;
+    } else if (
+      userType === "astrologer" &&
+      chatRequest.astrologerId.toString() === userId
+    ) {
+      hasAccess = true;
+    }
+
+    if (!hasAccess) {
+      return socket.emit("rejoin-error", {
+        message: "You are not authorized to join this chat.",
+      });
+    }
+
+    // Update socket ID in database
+    if (userType === "user") {
+      const user = await User.findById(userId);
+      if (user) {
+        user.socketId = socket.id;
+        await user.save();
+        console.log(`User ${userId} socket updated: ${socket.id}`);
+      }
+    } else {
+      const astrologer = await Astrologer.findById(userId);
+      if (astrologer) {
+        astrologer.socketId = socket.id;
+        await astrologer.save();
+        console.log(`Astrologer ${userId} socket updated: ${socket.id}`);
+      }
+    }
+
+    // Join the socket room
+    socket.join(roomId);
+
+    // Get chat history
+    const chatHistory = await AstrologerChat.findOne({ roomId });
+    const messages = chatHistory?.messages || [];
+
+    // Find other participant
+    const otherParticipantId =
+      userType === "user" ? chatRequest.astrologerId : chatRequest.userId;
+
+    const otherParticipant =
+      userType === "user"
+        ? await Astrologer.findById(otherParticipantId)
+        : await User.findById(otherParticipantId);
+
+    // Notify other participant that this user has rejoined
+    if (otherParticipant?.socketId) {
+      io.to(otherParticipant.socketId).emit("participant-rejoined", {
+        roomId,
+        participantId: userId,
+        participantType: userType,
+        message: `${userType === "user" ? "User" : "Astrologer"} has rejoined the chat`,
+      });
+
+      console.log(`Notified ${otherParticipantId} about rejoin`);
+    }
+
+    // Send success response with chat data
+    socket.emit("rejoin-success", {
+      roomId,
+      messages,
+      otherParticipantId,
+      chatType: chatRequest.chatType,
+      status: "reconnected",
+    });
+
+    console.log(
+      `✅ ${userType} ${userId} successfully rejoined room ${roomId}`
+    );
+  } catch (error) {
+    console.error("❌ Error rejoining chat room:", error);
+    socket.emit("rejoin-error", {
+      message: "Error rejoining chat room. Please try again.",
+    });
+  }
+}
+
+// Function to get active chats for user/astrologer
+export async function handleGetActiveChats(io, data, socket) {
+  try {
+    const { userId, userType } = data;
+
+    console.log(`Fetching active chats for ${userType}: ${userId}`);
+
+    let query = {};
+
+    if (userType === "user") {
+      query = {
+        userId,
+        status: "accepted",
+        roomId: { $exists: true, $ne: null },
+        endTime: { $exists: false }, // Chat hasn't ended yet
+      };
+    } else if (userType === "astrologer") {
+      query = {
+        astrologerId: userId,
+        status: "accepted",
+        roomId: { $exists: true, $ne: null },
+        endTime: { $exists: false }, // Chat hasn't ended yet
+      };
+    } else {
+      return socket.emit("active-chats-error", {
+        message: "Invalid user type. Must be 'user' or 'astrologer'",
+      });
+    }
+
+    // Find active chat rooms
+    const activeChats = await ChatRequest.find(query)
+      .select("roomId chatType startTime createdAt")
+      .sort({ createdAt: -1 }) // Most recent first
+      .limit(5); // Limit to 5 most recent active chats
+
+    console.log(
+      `Found ${activeChats.length} active chats for ${userType}: ${userId}`
+    );
+
+    // For each active chat, get the other participant's details
+    const chatDetails = await Promise.all(
+      activeChats.map(async (chat) => {
+        let otherParticipant = null;
+
+        if (userType === "user") {
+          otherParticipant = await Astrologer.findById(
+            chat.astrologerId
+          ).select("Fname Lname profile_picture");
+        } else {
+          otherParticipant = await User.findById(chat.userId).select(
+            "Fname Lname profile_picture"
+          );
+        }
+
+        return {
+          roomId: chat.roomId,
+          chatType: chat.chatType,
+          startTime: chat.startTime,
+          otherParticipant: otherParticipant
+            ? {
+                _id: otherParticipant._id,
+                name: `${otherParticipant.Fname || ""} ${otherParticipant.Lname || ""}`.trim(),
+                profilePicture: otherParticipant.profile_picture,
+              }
+            : null,
+        };
+      })
+    );
+
+    socket.emit("active-chats-list", {
+      chats: chatDetails,
+      count: chatDetails.length,
+    });
+  } catch (error) {
+    console.error("❌ Error fetching active chats:", error);
+    socket.emit("active-chats-error", {
+      message: "Error fetching active chats.",
+    });
+  }
+}
+
+// Add this function in controller.js
+export async function handleUserCancelChatRequest(io, data, socket) {
+  try {
+    const { requestId, userId } = data;
+
+    console.log(`User cancelling chat request:`, { requestId, userId });
+
+    // Find the request in the database
+    const chatRequest = await ChatRequest.findById(requestId);
+    if (!chatRequest) {
+      return socket.emit("request-cancel-error", {
+        message: "Chat request not found.",
+      });
+    }
+
+    // Verify that the request belongs to the user trying to cancel it
+    if (chatRequest.userId.toString() !== userId) {
+      return socket.emit("request-cancel-error", {
+        message: "You are not authorized to cancel this request.",
+      });
+    }
+
+    // Check if request is already processed (accepted/rejected)
+    if (chatRequest.status !== "pending") {
+      return socket.emit("request-cancel-error", {
+        message: `Request already ${chatRequest.status}. Cannot cancel.`,
+      });
+    }
+
+    // Update request status to 'user_cancelled'
+    chatRequest.status = "user_cancelled";
+    await chatRequest.save();
+
+    // Find the astrologer to notify
+    const astrologer = await Astrologer.findById(chatRequest.astrologerId);
+    if (astrologer && astrologer.socketId) {
+      // Notify astrologer about the cancellation
+      io.to(astrologer.socketId).emit("chat-request-cancelled-by-user", {
+        requestId,
+        userId,
+        message: "User cancelled the chat request.",
+      });
+      console.log(`Notified astrologer about chat request cancellation`);
+    }
+
+    // Notify the user that cancellation was successful
+    socket.emit("chat-request-cancelled-success", {
+      requestId,
+      message: "Chat request cancelled successfully.",
+    });
+
+    console.log(`Chat request cancelled successfully:`, requestId);
+  } catch (error) {
+    console.error("Error handling chat request cancellation:", error);
+    socket.emit("request-cancel-error", {
+      message: "Error cancelling chat request.",
+    });
+  }
+}

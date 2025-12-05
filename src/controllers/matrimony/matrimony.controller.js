@@ -164,14 +164,80 @@ export const getAllMatrimonyProfile = asyncHandler(async (req, res) => {
       ? ownMatrimonyProfile.pending_likes_id
       : [];
 
+    // Get blocked users
+    const blockedRecords = await MatrimonyReportBlock.find({
+      $or: [
+        { blockerId: id, isBlocked: true },
+        { blockedId: id, isBlocked: true },
+      ],
+    });
+
+    const blockedUserIds = blockedRecords.map((record) =>
+      record.blockerId.toString() === id ? record.blockedId : record.blockerId
+    );
+
+    // Get matrimony IDs of users we shouldn't show
+    const excludedMatrimonyProfiles = await Matrimony.find({
+      $or: [
+        { userId: { $in: sentLikes } }, // Users we've liked
+        { userId: { $in: blockedUserIds } }, // Blocked users
+        { userId: id }, // Own profile
+      ],
+    }).select("_id");
+
+    const excludedMatrimonyIds = excludedMatrimonyProfiles.map(
+      (profile) => profile._id
+    );
+
     // Use aggregation pipeline for filtering
     const filteredMatrimonyProfiles = await Matrimony.aggregate([
       {
         $match: {
-          userId: { $ne: ownMatrimonyProfile.userId }, // Exclude own profile
-          searching_for: { $ne: ownMatrimonyProfile.searching_for }, // Ensure profile is looking for the opposite match
-          userId: { $nin: likedProfiles }, // Exclude liked profiles
-          userId: { $nin: pendingLikes }, // Exclude profiles where user is in their pending likes
+          _id: { $nin: [...excludedMatrimonyIds, ...pendingProfileIds] }, // Exclude by matrimony ID
+          searching_for: {
+            $ne: ownMatrimonyProfile.searching_for,
+          }, // Looking for opposite gender
+          gender:
+            ownMatrimonyProfile.searching_for === "groom" ? "Male" : "Female", // Gender validation
+        },
+      },
+      {
+        $addFields: {
+          // Calculate age difference if needed
+          ageDifference: {
+            $abs: { $subtract: ["$age", ownMatrimonyProfile.age] },
+          },
+        },
+      },
+      {
+        $sort: {
+          // Example: Sort by recently active or age similarity
+          createdAt: -1,
+          ageDifference: 1,
+        },
+      },
+      {
+        $project: {
+          _id: 1,
+          userId: 1,
+          Fname: 1,
+          Lname: 1,
+          photo: 1,
+          city: 1,
+          state: 1,
+          salary: 1,
+          age: 1,
+          bio: 1,
+          gender: 1,
+          isDivorce: 1,
+          cast: 1,
+          interests: 1,
+          searching_for: 1,
+          facebookLink: 1,
+          whatsappNumber: 1,
+          createdAt: 1,
+          // Include any calculated fields
+          ageDifference: 1,
         },
       },
     ]);

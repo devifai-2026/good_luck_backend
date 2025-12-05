@@ -14,8 +14,11 @@ import {
   handleChatResponse,
   handleEndCall,
   handleEndChat,
+  handleGetActiveChats,
   handlePauseChat,
+  handleRejoinChatRoom,
   handleResumeChat,
+  handleUserCancelChatRequest,
 } from "./controllers/chatController/astrologerWithUser/controller.js";
 
 export const setupSocketIO = (server) => {
@@ -268,6 +271,20 @@ export const setupSocketIO = (server) => {
         console.error("Error canceling request:", error);
         socket.emit("error", { message: "Error canceling request." });
       }
+    });
+
+    // Handle chat room rejoin
+    socket.on("rejoin-chat-room", (data) => {
+      handleRejoinChatRoom(io, data, socket);
+    });
+
+    // Handle get active chats
+    socket.on("get-active-chats", (data) => {
+      handleGetActiveChats(io, data, socket);
+    });
+
+    socket.on("cancel-chat-request", (data) => {
+      handleUserCancelChatRequest(io, data, socket);
     });
 
     // Handle user disconnection

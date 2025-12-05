@@ -5,6 +5,7 @@ import { ApiError } from "../../utils/apiError.js";
 import { ApiResponse } from "../../utils/apiResponse.js";
 import { asyncHandler } from "../../utils/asyncHandler.js";
 import { MatchedProfileDating } from "../../models/dating/matchedProfileDating.model.js";
+import { DatingReportBlock } from "../../models/dating/datingReportBlock.model.js";
 
 // Create Dating Profile
 export const createDatingProfile = asyncHandler(async (req, res) => {
@@ -151,6 +152,18 @@ export const getAllDatingProfiles = asyncHandler(async (req, res) => {
   try {
     const { id } = req.params; // Current user's ID
 
+    // Get all blocked users
+    const blockedRecords = await DatingReportBlock.find({
+      $or: [
+        { blockerId: id, isBlocked: true },
+        { blockedId: id, isBlocked: true },
+      ],
+    });
+
+    const blockedUserIds = blockedRecords.map((record) =>
+      record.blockerId.toString() === id ? record.blockedId : record.blockerId
+    );
+
     // Fetch the current user's dating profile
     const currentUserProfile = await Dating.findOne({ userId: id });
 
@@ -178,8 +191,9 @@ export const getAllDatingProfiles = asyncHandler(async (req, res) => {
     // Filter out profiles the user has already liked
     const filteredDatingProfiles = datingProfiles.filter((profile) => {
       return (
-        !sentLikes.includes(profile.userId) && // Exclude profiles the user has already liked
-        !profile.pending_likes_id.includes(id) // Exclude profiles where the user's ID is in their pending_likes_id
+        !sentLikes.includes(profile.userId) &&
+        !profile.pending_likes_id.includes(id) &&
+        !blockedUserIds.includes(profile.userId.toString())
       );
     });
 
