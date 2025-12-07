@@ -15,7 +15,7 @@ const matrimonyReportBlockSchema = new Schema(
     blockerId: {
       type: Schema.Types.ObjectId,
       ref: "User",
-      required: true, 
+      required: true,
     },
     blockedId: {
       type: Schema.Types.ObjectId,

@@ -48,6 +48,8 @@ export const reportMatrimonyUser = asyncHandler(async (req, res) => {
     const newReport = await MatrimonyReportBlock.create({
       reporterId,
       reportedId,
+      blockedId: reportedId,
+      blockerId: reporterId,
       reportReason,
       reportDescription,
       reportStatus: "pending",
@@ -135,6 +137,8 @@ export const blockMatrimonyUser = asyncHandler(async (req, res) => {
         isBlocked: true,
         blockedAt: new Date(),
         unblockedAt: null,
+        reportedId: blockedId,
+        reporterId: blockerId,
       },
       { upsert: true, new: true }
     );
@@ -157,6 +161,8 @@ export const unblockMatrimonyUser = asyncHandler(async (req, res) => {
   try {
     const { blockerId, blockedId } = req.params;
 
+    console.log(req.params);
+
     if (!blockerId || !blockedId) {
       return res
         .status(400)
@@ -169,6 +175,7 @@ export const unblockMatrimonyUser = asyncHandler(async (req, res) => {
       isBlocked: true,
     });
 
+    console.log(existingBlock);
     if (!existingBlock) {
       return res
         .status(404)
