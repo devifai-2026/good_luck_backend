@@ -290,7 +290,7 @@ export const setupSocketIO = (server) => {
     // Handle user disconnection
 // In your socket server file
 socket.on("disconnect", async () => {
-  console.log("A user disconnected:", socket.id);
+  console.log("🔌 A user disconnected:", socket.id);
 
   try {
     // Find and update the astrologer's status
@@ -299,35 +299,56 @@ socket.on("disconnect", async () => {
       { 
         $set: { 
           status: "offline",
-          socketId: null, // Clear socketId when disconnected
-          isActive: false // Also set isActive to false
+          socketId: null,
+          isActive: false
         }
       },
-      { new: true } // Return the updated document
+      { new: true }
     );
     
     if (updatedAstrologer) {
-      console.log(`✅ Astrologer ${updatedAstrologer._id} (${socket.id}) set to offline`);
+      console.log(`✅ Astrologer ${updatedAstrologer._id} (${updatedAstrologer.Fname}) set to offline`);
       
-      // Also emit event to notify other users this astrologer went offline
-      socket.broadcast.emit('astrologer_offline', {
+      // Broadcast to ALL connected sockets that this astrologer went offline
+      io.emit('astrologer_status_changed', {
         astrologerId: updatedAstrologer._id,
-        socketId: socket.id
+        status: 'offline',
+        name: `${updatedAstrologer.Fname} ${updatedAstrologer.Lname}`,
+        timestamp: new Date()
       });
+
+      // Also remove from any active call/chat sessions
+      removeAstrologerFromActiveSessions(updatedAstrologer._id);
     } else {
       console.log(`ℹ️ No astrologer found with socketId: ${socket.id}`);
+      
+      // Check if it's a regular user
+      const updatedUser = await User.findOneAndUpdate(
+        { socketId: socket.id },
+        { $set: { socketId: null, isOnline: false } },
+        { new: true }
+      );
+      
+      if (updatedUser) {
+        console.log(`👤 User ${updatedUser._id} set to offline`);
+      }
     }
   } catch (error) {
-    console.error("❌ Error updating astrologer status on disconnect:", error);
+    console.error("❌ Error updating status on disconnect:", error);
   }
 
-  // More efficient way to remove user from activeUsers
-  const userIdToRemove = Array.from(activeUsers.entries())
-    .find(([userId, sockId]) => sockId === socket.id)?.[0];
+  // Remove from activeUsers
+  let removedUserId = null;
+  for (const [userId, sockId] of activeUsers.entries()) {
+    if (sockId === socket.id) {
+      activeUsers.delete(userId);
+      removedUserId = userId;
+      break;
+    }
+  }
   
-  if (userIdToRemove) {
-    activeUsers.delete(userIdToRemove);
-    console.log(`🗑️ Removed user ${userIdToRemove} from active users`);
+  if (removedUserId) {
+    console.log(`🗑️ Removed user ${removedUserId} from active users`);
   }
 });
   });
