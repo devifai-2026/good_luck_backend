@@ -288,17 +288,39 @@ export const setupSocketIO = (server) => {
     });
 
     // Handle user disconnection
-    socket.on("disconnect", () => {
-      console.log("A user disconnected:", socket.id);
+    socket.on("disconnect", async () => {
+  console.log("A user disconnected:", socket.id);
 
-      // Remove the user from the active users map
-      for (const [userId, socketId] of activeUsers.entries()) {
-        if (socketId === socket.id) {
-          activeUsers.delete(userId);
-          break;
-        }
+  try {
+    // Find and update the user in the database
+    const updatedUser = await User.findOneAndUpdate(
+      { socketId: socket.id, isAstrologer: true },
+      { 
+        $set: { 
+          isActive: false,
+          socketId: null // Also clear the socketId since user disconnected
+        } 
+      },
+      { new: true } // Return the updated document
+    );
+
+    // If user was found and updated, also remove from activeUsers map
+    if (updatedUser) {
+      console.log(`Astrologer ${updatedUser._id} marked as inactive`);
+    }
+
+    // Remove the user from the active users map
+    for (const [userId, socketId] of activeUsers.entries()) {
+      if (socketId === socket.id) {
+        activeUsers.delete(userId);
+        break;
       }
-    });
+    }
+
+  } catch (error) {
+    console.error("Error updating user status on disconnect:", error);
+  }
+});
   });
 
   return io;
