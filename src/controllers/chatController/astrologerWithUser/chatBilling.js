@@ -40,16 +40,22 @@ async function creditAstrologerAndAdmin(astrologer, admin, totalCost, roomId) {
   });
   await astrologer.save();
 
-  admin.wallet.balance += adminShare;
-  admin.wallet.transactionHistory.push({
-    timestamp: new Date(),
-    type: "credit",
-    credit_type: "chat",
-    amount: adminShare,
-    description: "Chat commission",
-    reference: `ChatRoom-${roomId}`,
-  });
-  await admin.save();
+  if (admin) {
+    admin.wallet.balance += adminShare;
+    admin.wallet.transactionHistory.push({
+      timestamp: new Date(),
+      type: "credit",
+      credit_type: "chat",
+      amount: adminShare,
+      description: "Chat commission",
+      reference: `ChatRoom-${roomId}`,
+    });
+    await admin.save();
+  } else {
+    console.warn(
+      `⚠️ Admin not found for roomId ${roomId}. Commission not credited.`
+    );
+  }
 }
 
 //==================================================================================================
@@ -62,11 +68,38 @@ export async function startChat(io, roomId, chatType, userId, astrologerId) {
     const user = await User.findById(userId);
     const admin = await Admin.findOne();
 
-    if (!astrologer || !user || !admin) {
+    if (!astrologer || !user) {
+      const fs = await import("fs/promises");
+      await fs.appendFile(
+        "startChat-error.log",
+        JSON.stringify(
+          {
+            timestamp: new Date().toISOString(),
+            astrologer: !!astrologer,
+            user: !!user,
+            astrologerId,
+            userId,
+          },
+          null,
+          2
+        ) + "\n"
+      );
+      console.error("❌ StartChat Error: Missing required entity", {
+        astrologer: !!astrologer,
+        user: !!user,
+        astrologerId,
+        userId,
+      });
       io.to(roomId).emit("chat-error", {
-        message: "Astrologer, User, or Admin not found",
+        message: "Astrologer or User not found",
       });
       return;
+    }
+
+    if (!admin) {
+      console.warn(
+        "⚠️ StartChat Warning: Admin not found. Chat will proceed without admin commission tracking."
+      );
     }
 
     const costPerMinute = await getChatPrice(chatType, astrologerId);
@@ -276,11 +309,17 @@ export async function startCall(io, roomId, callType, userId, astrologerId) {
     const user = await User.findById(userId);
     const admin = await Admin.findOne();
 
-    if (!astrologer || !user || !admin) {
+    if (!astrologer || !user) {
       io.to(roomId).emit("call-error", {
-        message: "Astrologer, User, or Admin not found",
+        message: "Astrologer or User not found",
       });
       return;
+    }
+
+    if (!admin) {
+      console.warn(
+        "⚠️ StartCall Warning: Admin not found. Call will proceed without admin commission tracking."
+      );
     }
 
     const costPerMinute = await getChatPrice(callType, astrologerId);
