@@ -73,10 +73,18 @@ const authRequest = asyncHandler(async (req, res) => {
     }
 
     let authRecord = await Auth.findOne({ phone });
-    let authRequest = await AuthRequest.findOne({ phone });
+    let existingAuthRequest = await AuthRequest.findOne({ phone });
 
-    if (!authRecord && !authRequest) {
-      authRequest = new AuthRequest({
+    // If user already exists in Auth table, they should login instead
+    if (authRecord) {
+      return res
+        .status(409)
+        .json(new ApiResponse(409, null, "User already registered. Please login instead."));
+    }
+
+    // Create or update AuthRequest for new user registration
+    if (!existingAuthRequest) {
+      existingAuthRequest = new AuthRequest({
         phone,
         Fname: Fname || "",
         Lname: Lname || "",
@@ -90,7 +98,18 @@ const authRequest = asyncHandler(async (req, res) => {
       });
 
       // Try saving the document
-      await authRequest.save();
+      await existingAuthRequest.save();
+    } else {
+      // Update existing AuthRequest with new data if user is re-requesting OTP
+      existingAuthRequest.Fname = Fname || existingAuthRequest.Fname;
+      existingAuthRequest.Lname = Lname || existingAuthRequest.Lname;
+      existingAuthRequest.gender = gender || existingAuthRequest.gender;
+      existingAuthRequest.date_of_birth = date_of_birth || existingAuthRequest.date_of_birth;
+      existingAuthRequest.isAstrologer = role === "astrologer";
+      existingAuthRequest.isAffiliate_marketer = role === "affiliate_marketer";
+      existingAuthRequest.isAdmin = role === "admin";
+      existingAuthRequest.user_type = role;
+      await existingAuthRequest.save();
     }
 
     // Call sendOTP function here
@@ -845,12 +864,12 @@ const login_verify_OTP = asyncHandler(async (req, res) => {
           userId: userRecord?._id,
           astrologer: astrologer
             ? {
-                ...astrologer.toObject(),
-                wallet: {
-                  balance: astrologer.wallet.balance,
-                  _id: astrologer.wallet._id,
-                },
-              }
+              ...astrologer.toObject(),
+              wallet: {
+                balance: astrologer.wallet.balance,
+                _id: astrologer.wallet._id,
+              },
+            }
             : null,
           role: authRecord.user_type,
           phone: authRecord.phone,
@@ -865,45 +884,45 @@ const login_verify_OTP = asyncHandler(async (req, res) => {
             userRecord?.datingSubscription?.isSubscribed || false,
           userDetails: userRecord
             ? {
-                Fname: userRecord.Fname,
-                Lname: userRecord.Lname,
-                gender: userRecord.gender,
-                profile_picture: userRecord.profile_picture,
-                date_of_birth: userRecord.date_of_birth,
-              }
+              Fname: userRecord.Fname,
+              Lname: userRecord.Lname,
+              gender: userRecord.gender,
+              profile_picture: userRecord.profile_picture,
+              date_of_birth: userRecord.date_of_birth,
+            }
             : null,
           ads_subsCription: userRecord?.adSubscription
             ? {
-                isSubscribed: userRecord.adSubscription.isSubscribed,
-                StartDate: userRecord.adSubscription.startDate,
-                EndDate: userRecord.adSubscription.endDate,
-                isPromoApplied: userRecord.adSubscription.isPromoApplied,
-                plan: userRecord.adSubscription.price,
-              }
+              isSubscribed: userRecord.adSubscription.isSubscribed,
+              StartDate: userRecord.adSubscription.startDate,
+              EndDate: userRecord.adSubscription.endDate,
+              isPromoApplied: userRecord.adSubscription.isPromoApplied,
+              plan: userRecord.adSubscription.price,
+            }
             : null,
           matrimony_subsCription: userRecord?.matrimonySubscription
             ? {
-                isSubscribed: userRecord.matrimonySubscription.isSubscribed,
-                StartDate: userRecord.matrimonySubscription.startDate,
-                EndDate: userRecord.matrimonySubscription.endDate,
-                category: userRecord.matrimonySubscription.category,
-              }
+              isSubscribed: userRecord.matrimonySubscription.isSubscribed,
+              StartDate: userRecord.matrimonySubscription.startDate,
+              EndDate: userRecord.matrimonySubscription.endDate,
+              category: userRecord.matrimonySubscription.category,
+            }
             : null,
           dating_subsCription: userRecord?.datingSubscription
             ? {
-                isSubscribed: userRecord.datingSubscription.isSubscribed,
-                StartDate: userRecord.datingSubscription.startDate,
-                EndDate: userRecord.datingSubscription.endDate,
-                category: userRecord.datingSubscription.category,
-              }
+              isSubscribed: userRecord.datingSubscription.isSubscribed,
+              StartDate: userRecord.datingSubscription.startDate,
+              EndDate: userRecord.datingSubscription.endDate,
+              category: userRecord.datingSubscription.category,
+            }
             : null,
           localSubscription: userRecord?.localSubscription
             ? {
-                isSubscribed: userRecord.localSubscription.isSubscribed,
-                StartDate: userRecord.localSubscription.startDate,
-                EndDate: userRecord.localSubscription.endDate,
-                category: userRecord.localSubscription.category,
-              }
+              isSubscribed: userRecord.localSubscription.isSubscribed,
+              StartDate: userRecord.localSubscription.startDate,
+              EndDate: userRecord.localSubscription.endDate,
+              category: userRecord.localSubscription.category,
+            }
             : null,
         },
         "OTP Verified"
