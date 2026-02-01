@@ -281,6 +281,16 @@ const auth_request_verify_OTP = asyncHandler(async (req, res) => {
   ];
   let otpValidationSuccess = true;
 
+  console.log("=== OTP Verification Debug ===");
+  console.log("Phone:", phone);
+  console.log("OTP:", otp, "Type:", typeof otp);
+  console.log("VerificationId:", verificationId);
+  console.log("AuthRequest user_type:", authRequestRecord.user_type);
+  console.log("Is bypass number:", bypassNumbers.includes(phone));
+  console.log("Bypass check - verificationId match:", verificationId === "1234567");
+  console.log("Bypass check - otp match (1234):", otp === 1234);
+  console.log("Bypass check - otp match ('1234'):", otp === "1234");
+
   if (
     !(
       bypassNumbers.includes(phone) &&
@@ -289,11 +299,16 @@ const auth_request_verify_OTP = asyncHandler(async (req, res) => {
     )
   ) {
     // Use validateOTP function to check the OTP
+    console.log("Calling validateOTP API...");
     const otpValidationResponse = await validateOTP(phone, verificationId, otp);
+    console.log("OTP Validation Response:", otpValidationResponse);
     otpValidationSuccess = otpValidationResponse.success;
+  } else {
+    console.log("Bypassing OTP validation for test number");
   }
 
   if (!otpValidationSuccess) {
+    console.log("OTP Validation Failed!");
     return res.status(400).json(new ApiResponse(400, null, "Invalid OTP"));
   }
 
