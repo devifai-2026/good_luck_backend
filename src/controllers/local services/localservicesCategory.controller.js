@@ -5,7 +5,7 @@ import { asyncHandler } from "../../utils/asyncHandler.js";
 // Create a new category
 export const createCategory = asyncHandler(async (req, res, next) => {
   try {
-    const { name } = req.body;
+    const { name, icon } = req.body;
 
     if (!name) {
       return res
@@ -20,7 +20,7 @@ export const createCategory = asyncHandler(async (req, res, next) => {
         .json(new ApiResponse(400, null, "Category already exists"));
     }
 
-    const newCategory = new LocalServiceCategory({ name });
+    const newCategory = new LocalServiceCategory({ name, icon: icon || null });
     await newCategory.save();
 
     const savedCategory = await LocalServiceCategory.findById(
@@ -78,7 +78,7 @@ export const getCategoryById = asyncHandler(async (req, res, next) => {
 export const updateCategory = asyncHandler(async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { name } = req.body;
+    const { name, icon } = req.body;
 
     if (!name) {
       return res
@@ -96,6 +96,7 @@ export const updateCategory = asyncHandler(async (req, res, next) => {
 
     // Perform update
     existingCategory.name = name;
+    if (icon !== undefined) existingCategory.icon = icon;
     await existingCategory.save();
 
     res.json(

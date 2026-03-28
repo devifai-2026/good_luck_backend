@@ -6,6 +6,10 @@ const LocalServiceCategorySchema = new mongoose.Schema({
     required: [true, "Category name is required"],
     trim: true,
   },
+  icon: {
+    type: String,
+    default: null,
+  },
   createdAt: {
     type: Date,
     default: Date.now,

@@ -156,7 +156,7 @@ export const getAllLocalServices = asyncHandler(async (req, res, next) => {
     const skip = (pageNum - 1) * limitNum;
 
     const services = await LocalService.find(filter)
-      .populate("category", "name")
+      .populate("category", "name icon")
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limitNum);
@@ -308,7 +308,7 @@ export const getLocalServicesByCategory = asyncHandler(
       }
 
       const services = await LocalService.find(locationFilter)
-        .populate("category", "name")
+        .populate("category", "name icon")
         .sort({ createdAt: -1 });
 
       if (!services.length) {
@@ -365,7 +365,7 @@ export const searchLocalServicesByLocation = asyncHandler(
       }
 
       const services = await LocalService.find(filter)
-        .populate("category", "name")
+        .populate("category", "name icon")
         .sort({ createdAt: -1 });
 
       if (!services.length) {
@@ -404,7 +404,7 @@ export const getLocalServicesByCity = asyncHandler(async (req, res, next) => {
     }
 
     const services = await LocalService.find(filter)
-      .populate("category", "name")
+      .populate("category", "name icon")
       .sort({ createdAt: -1 });
 
     if (!services.length) {
@@ -436,7 +436,7 @@ export const getLocalServicesByState = asyncHandler(async (req, res, next) => {
     }
 
     const services = await LocalService.find(filter)
-      .populate("category", "name")
+      .populate("category", "name icon")
       .sort({ createdAt: -1 });
 
     if (!services.length) {
@@ -505,7 +505,7 @@ export const filterLocalServices = asyncHandler(async (req, res, next) => {
 
     // Find services with filters
     const services = await LocalService.find(filter)
-      .populate("category", "name")
+      .populate("category", "name icon")
       .populate("userId", "firstName lastName email") // User details
       .sort({ createdAt: -1 })
       .skip(skip)
