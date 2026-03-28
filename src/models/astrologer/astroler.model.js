@@ -41,7 +41,7 @@ const astrologerSchema = new Schema(
     },
     specialisation: {
       type: [{ type: Schema.Types.ObjectId, ref: "AstrologerCategory" }],
-      required: [true, "Specialisation is required"],
+      required: false,
     },
     reviews: [reviewSchema],
     total_number_service_provide: {
@@ -63,11 +63,11 @@ const astrologerSchema = new Schema(
     },
     chat_price: {
       type: Number,
-      required: [true, "Chat price is required"],
+      required: false,
     },
     video_price: {
       type: Number,
-      required: [true, "Video price is required"],
+      required: false,
     },
     call_price: {
       type: Number,
@@ -75,23 +75,23 @@ const astrologerSchema = new Schema(
     },
     years_of_experience: {
       type: Number,
-      required: [true, "Years of experience is required"],
+      required: false,
     },
     profile_picture: {
       type: String,
-      required: [true, "Profile picture is required"],
+      required: false,
     },
     description: {
       type: String,
-      required: [true, "Description is required"],
+      required: false,
     },
     language: {
       type: [String],
-      required: [true, "Language is required"],
+      required: false,
     },
     certifications: {
       type: [String],
-      required: [true, "Certifications are required"],
+      required: false,
     },
     adhar_card: [String],
     pan_card: [String],
