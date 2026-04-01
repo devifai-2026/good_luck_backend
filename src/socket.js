@@ -15,6 +15,7 @@ import {
   handleEndCall,
   handleEndChat,
   handleGetActiveChats,
+  handleMarkAsRead,
   handlePauseChat,
   handleRejoinChatRoom,
   handleResumeChat,
@@ -240,6 +241,11 @@ export const setupSocketIO = (server) => {
 
       // Call the function to handle the end of the chat, passing the sender
       await handleEndChat(io, roomId, sender);
+    });
+
+    // Handle mark messages as read
+    socket.on("mark-as-read", async (data) => {
+      await handleMarkAsRead(data, io);
     });
 
     // Handle call request from user

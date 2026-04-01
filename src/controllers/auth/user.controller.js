@@ -1088,9 +1088,11 @@ const addWalletBalance = asyncHandler(async (req, res) => {
 
   // Add the balance and create the transaction history entry
   user.wallet.balance += amount;
+  user.superNote = (user.superNote || 0) + amount;
   user.wallet.transactionHistory.push({
     transactionId,
     type: "credit",
+    credit_type: "wallet_recharge",
     amount,
     description: description || "Balance added",
     reference: userId,
@@ -1403,7 +1405,7 @@ const buyAdSubscription = asyncHandler(async (req, res) => {
     }
   }
 
-  user.superNote = 100;
+  user.superNote = (user.superNote || 0) + discountedPrice;
 
   await user.save();
 
@@ -1457,6 +1459,7 @@ const buyMatrimonySubscription = asyncHandler(async (req, res) => {
 
   // Deduct the amount from the wallet balance
   user.wallet.balance -= price;
+  user.superNote = (user.superNote || 0) + price;
 
   user.wallet.transactionHistory.push({
     type: "debit",
@@ -1555,6 +1558,7 @@ const buyDatingSubscription = asyncHandler(async (req, res) => {
 
   // Deduct the amount from the wallet balance
   user.wallet.balance -= price;
+  user.superNote = (user.superNote || 0) + price;
 
   user.wallet.transactionHistory.push({
     type: "debit",
@@ -1651,6 +1655,7 @@ export const buyLocalSubscription = asyncHandler(async (req, res) => {
 
   // Deduct the amount from the wallet balance
   user.wallet.balance -= price;
+  user.superNote = (user.superNote || 0) + price;
 
   user.wallet.transactionHistory.push({
     type: "debit",

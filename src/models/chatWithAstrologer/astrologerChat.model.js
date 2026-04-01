@@ -27,6 +27,12 @@ const astrologerChatSchema = new mongoose.Schema(
           enum: ["User", "Astrologer"],
         },
         message: { type: String, required: true }, // The message content
+        type: {
+          type: String,
+          enum: ["text", "image", "video"],
+          default: "text",
+        },
+        isRead: { type: Boolean, default: false },
         timestamp: {
           type: Date,
           default: function () {

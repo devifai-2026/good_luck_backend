@@ -276,6 +276,7 @@ export const handleChatMessage = async (data, io) => {
     receiverId,
     receiverModel,
     duration,
+    type,
   } = data;
 
   // Validate sender and receiver models
@@ -299,11 +300,15 @@ export const handleChatMessage = async (data, io) => {
       receiverId,
       receiverModel,
       message,
+      type: type || "text",
+      isRead: false,
       timestamp: moment().tz("Asia/Kolkata").toDate(),
     };
 
     chat.messages.push(newMessage);
     await chat.save();
+
+    const savedMessage = chat.messages[chat.messages.length - 1];
 
     io.to(roomId).emit("received-message", {
       senderId,
@@ -311,6 +316,8 @@ export const handleChatMessage = async (data, io) => {
       receiverId,
       receiverModel,
       message,
+      type: type || "text",
+      messageId: savedMessage._id,
       timestamp: newMessage.timestamp,
       duration,
     });
@@ -320,6 +327,21 @@ export const handleChatMessage = async (data, io) => {
   } catch (error) {
     console.error("Error saving message:", error);
     return { error: "Could not save message" };
+  }
+};
+
+// Function to mark messages as read
+export const handleMarkAsRead = async (data, io) => {
+  const { roomId, readerId } = data;
+  try {
+    await AstrologerChat.updateOne(
+      { roomId },
+      { $set: { "messages.$[msg].isRead": true } },
+      { arrayFilters: [{ "msg.receiverId": readerId, "msg.isRead": false }] }
+    );
+    io.to(roomId).emit("messages-read", { roomId, readerId });
+  } catch (error) {
+    console.error("Error marking messages as read:", error);
   }
 };
 

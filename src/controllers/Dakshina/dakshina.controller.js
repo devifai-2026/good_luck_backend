@@ -161,6 +161,9 @@ export const makePayment = asyncHandler(async (req, res) => {
       description: `Payment received from ${user.Fname} ${user.Lname}`,
     });
 
+    // Add amount to user's superNote
+    user.superNote = (user.superNote || 0) + amount;
+
     // Save the updated user and admin documents
     await user.save();
     await admin.save();
