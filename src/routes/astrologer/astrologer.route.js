@@ -11,6 +11,7 @@ import {
   getAllReviewsByAstrologerId,
   getAllUpdateRequestAstrologers,
   getAstrologerById,
+  getAstrologerRequestStatusByUserId,
   getPendingRequestById,
   getRejectedRequestById,
   getUpdateRequestAstrologerById,
@@ -32,6 +33,7 @@ router.get("/pending/:id", getPendingRequestById);
 router.get("/rejected", getAllRejectedRequests);
 router.get("/rejected/:id", getRejectedRequestById);
 router.route("/").get(getAllAstrologers);
+router.get("/request/status/:userId", getAstrologerRequestStatusByUserId);
 router.route("/:id").get(getAstrologerById);
 router.route("/updateRequest/:id").post(updateRequestAstrologerProfile);
 router.route("/approveUpdate/:id").patch(approveUpdateRequest);

@@ -7,6 +7,7 @@ import {
   buyAdSubscription,
   buyDatingSubscription,
   buyLocalSubscription,
+  createLocalSubscriptionOrder,
   buyMatrimonySubscription,
   checkPromoCode,
   deleteUserAccount,
@@ -32,6 +33,7 @@ router.route("/resend_otp").post(resendOTP);
 router.post('/ads-subscription/buy', buyAdSubscription);
 router.post('/matrimony-subscription/buy', buyMatrimonySubscription);
 router.post('/dating-subscription/buy', buyDatingSubscription);
+router.post('/local-subscription/create-order', createLocalSubscriptionOrder);
 router.post('/local-subscription/buy', buyLocalSubscription);
 router.route("/userWallet/addBalance/:userId").patch(addWalletBalance);
 router.get('/wallet-balance/:userId', getWalletBalanceByUserId);

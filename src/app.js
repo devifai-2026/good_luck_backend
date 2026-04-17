@@ -98,7 +98,7 @@ app.use("/good_luck/api/v1/admin-ads", adminAdRoutes);
 app.use("/good_luck/api/v1/commission", commissionRouter);
 app.use("/good_luck/api/v1/affiliate", affiliateRouter);
 app.use("/", paymentRouter);
-app.use("/", razorpayRouter);
+app.use("/good_luck/api/v1", razorpayRouter);
 
 app.get("/", (req, res) => {
   res.send("Welcome to Good Luck API v2.0 !");

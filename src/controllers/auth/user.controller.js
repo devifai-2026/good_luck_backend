@@ -23,6 +23,8 @@ import { DatingSubscription } from "../../models/subscription/dating.subscriptio
 import { LocalSubscription } from "../../models/subscription/localserviceSubscription.js";
 import sendNotification from "../../utils/onesignal.js";
 import generateUniquePromoCode from "../../utils/generatePromocode.js";
+import Razorpay from "razorpay";
+import crypto from "crypto";
 
 // Helper to generate access and refresh tokens
 const generateAccessAndRefreshToken = async (authId) => {
@@ -391,7 +393,9 @@ const auth_request_verify_OTP = asyncHandler(async (req, res) => {
     // newUser.affiliateId = newAffiliate._id;
     // await newUser.save();
   } else if (authRequestRecord.user_type === "astrologer") {
-    // Create User record for astrologer
+    // Create User record for astrologer only — no Astrologer record yet.
+    // The astrologer must complete their profile form (creating an AstrologerRequest)
+    // and wait for admin approval before an Astrologer record is created.
     newUser = new User({
       authId: newAuth._id,
       phone,
@@ -416,37 +420,6 @@ const auth_request_verify_OTP = asyncHandler(async (req, res) => {
       oneSignalPlayerId: oneSignalPlayerId || null,
     });
     await newUser.save();
-
-    // Create Astrologer record
-    newAstrologer = new Astrologer({
-      authId: newAuth._id,
-      userId: newUser._id,
-      Fname: authRequestRecord.Fname || "",
-      Lname: authRequestRecord.Lname || "",
-      phone,
-      gender: authRequestRecord.gender || "Others",
-      date_of_birth: authRequestRecord.date_of_birth || "00-00-0000",
-      profile_picture:
-        authRequestRecord.profile_picture ||
-        "https://i.fbcd.co/products/resized/resized-750-500/d4c961732ba6ec52c0bbde63c9cb9e5dd6593826ee788080599f68920224e27d.jpg",
-      wallet: {
-        transactionHistory: [
-          {
-            transactionId: generateTransactionId(),
-            timestamp: Date.now(),
-            type: "credit",
-            credit_type: "others",
-            amount: 0,
-            description: "Initial astrologer wallet setup",
-          },
-        ],
-      },
-      // Add other astrologer-specific fields
-      services: authRequestRecord.services || [],
-      isVerified: false, // Astrologer needs separate verification
-      isActive: false,
-    });
-    await newAstrologer.save();
   } else if (authRequestRecord.user_type === "admin") {
     // Create User record for admin
     newUser = new User({
@@ -811,6 +784,7 @@ const login_verify_OTP = asyncHandler(async (req, res) => {
 
     const userRecord = await User.findOne({ phone });
     const astrologer = await Astrologer.findOne({ phone });
+    const astrologerRequest = await AstrologerRequest.findOne({ phone });
 
     // Bypass OTP validation for specific numbers with exact verificationId and OTP
     const bypassNumbers = [
@@ -885,6 +859,14 @@ const login_verify_OTP = asyncHandler(async (req, res) => {
                 balance: astrologer.wallet.balance,
                 _id: astrologer.wallet._id,
               },
+            }
+            : null,
+          // Include pending/rejected AstrologerRequest so the app can show the right screen
+          astrologerRequest: !astrologer && astrologerRequest
+            ? {
+              _id: astrologerRequest._id,
+              request_status: astrologerRequest.request_status,
+              request_status_message: astrologerRequest.request_status_message,
             }
             : null,
           role: authRecord.user_type,
@@ -1616,27 +1598,24 @@ const buyDatingSubscription = asyncHandler(async (req, res) => {
   );
 });
 
-// Buy Local Subscription
-export const buyLocalSubscription = asyncHandler(async (req, res) => {
-  const { userId, planType, transactionId } = req.body;
+// Create Razorpay order for Local Subscription
+export const createLocalSubscriptionOrder = asyncHandler(async (req, res) => {
+  const { userId, planType } = req.body;
 
   if (!userId || !planType) {
     throw new ApiError(400, "User ID and plan type are required.");
   }
 
-  // Fetch the user
   const user = await User.findById(userId);
   if (!user) {
     throw new ApiError(404, "User not found.");
   }
 
-  // Fetch subscription plans
   const subscriptionPlans = await LocalSubscription.findOne();
   if (!subscriptionPlans) {
     throw new ApiError(404, "Subscription plans not found.");
   }
 
-  // Determine the price based on the planType
   const price =
     planType === "one_month_plan"
       ? subscriptionPlans.one_month_plan
@@ -1648,49 +1627,101 @@ export const buyLocalSubscription = asyncHandler(async (req, res) => {
     throw new ApiError(400, "Invalid plan type.");
   }
 
-  // Check if the user has enough balance
-  if (user.wallet.balance < price) {
-    throw new ApiError(400, "Insufficient balance in wallet.");
-  }
-
-  // Deduct the amount from the wallet balance
-  user.wallet.balance -= price;
-  user.superNote = (user.superNote || 0) + price;
-
-  user.wallet.transactionHistory.push({
-    type: "debit",
-    debit_type: "Local Service",
-    amount: price,
-    description: "Local subscription purchase",
-    reference: planType,
-    transactionId: transactionId,
+  const razorpay = new Razorpay({
+    key_id: process.env.RAZORPAY_KEY_ID,
+    key_secret: process.env.RAZORPAY_KEY_SECRET,
   });
 
+  const order = await razorpay.orders.create({
+    amount: price * 100, // paise
+    currency: "INR",
+    receipt: `local_sub_${userId}_${Date.now()}`,
+    notes: { userId, planType },
+  });
+
+  res.status(201).json(
+    new ApiResponse(
+      201,
+      {
+        orderId: order.id,
+        amount: order.amount,
+        currency: order.currency,
+        keyId: process.env.RAZORPAY_KEY_ID,
+        planType,
+        price,
+      },
+      "Order created successfully."
+    )
+  );
+});
+
+// Buy Local Subscription (called after successful Razorpay payment)
+export const buyLocalSubscription = asyncHandler(async (req, res) => {
+  const {
+    userId,
+    planType,
+    razorpay_order_id,
+    razorpay_payment_id,
+    razorpay_signature,
+  } = req.body;
+
+  if (!userId || !planType || !razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
+    throw new ApiError(400, "userId, planType, razorpay_order_id, razorpay_payment_id, and razorpay_signature are required.");
+  }
+
+  // Verify Razorpay signature
+  const expectedSignature = crypto
+    .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
+    .update(`${razorpay_order_id}|${razorpay_payment_id}`)
+    .digest("hex");
+
+  if (expectedSignature !== razorpay_signature) {
+    throw new ApiError(400, "Payment verification failed. Invalid signature.");
+  }
+
+  const user = await User.findById(userId);
+  if (!user) {
+    throw new ApiError(404, "User not found.");
+  }
+
+  const subscriptionPlans = await LocalSubscription.findOne();
+  if (!subscriptionPlans) {
+    throw new ApiError(404, "Subscription plans not found.");
+  }
+
+  const price =
+    planType === "one_month_plan"
+      ? subscriptionPlans.one_month_plan
+      : planType === "one_year_plan"
+        ? subscriptionPlans.one_year_plan
+        : null;
+
+  if (price === null) {
+    throw new ApiError(400, "Invalid plan type.");
+  }
+
   // Set the local subscription details
+  const startDate = new Date();
+  const endDate = new Date(startDate);
+  if (planType === "one_month_plan") {
+    endDate.setMonth(endDate.getMonth() + 1);
+  } else {
+    endDate.setFullYear(endDate.getFullYear() + 1);
+  }
+
   user.localSubscription = {
     plan: subscriptionPlans._id,
     isSubscribed: true,
     category: planType === "one_month_plan" ? "1 month" : "1 year",
-    startDate: new Date(),
-    endDate: new Date(),
-    price: price,
+    startDate,
+    endDate,
+    price,
   };
-
-  // Calculate the end date
-  if (planType === "one_month_plan") {
-    user.localSubscription.endDate.setMonth(
-      user.localSubscription.startDate.getMonth() + 1
-    );
-  } else if (planType === "one_year_plan") {
-    user.localSubscription.endDate.setFullYear(
-      user.localSubscription.startDate.getFullYear() + 1
-    );
-  }
 
   await user.save();
 
   // Credit commission to the admin's wallet
-  const admin = await Admin.findOne(); // Assuming a single admin
+  const admin = await Admin.findOne();
   if (admin) {
     admin.wallet.balance += price;
     admin.wallet.transactionHistory.push({
@@ -1698,21 +1729,19 @@ export const buyLocalSubscription = asyncHandler(async (req, res) => {
       credit_type: "Local Service",
       amount: price,
       description: "Commission from Local Service subscription for admin",
-      reference: "NA",
-      transactionId: transactionId,
+      reference: razorpay_payment_id,
+      transactionId: razorpay_order_id,
     });
     await admin.save();
   }
 
-  res
-    .status(200)
-    .json(
-      new ApiResponse(
-        200,
-        { subscription: user.localSubscription },
-        "Local subscription purchased successfully."
-      )
-    );
+  res.status(200).json(
+    new ApiResponse(
+      200,
+      { subscription: user.localSubscription },
+      "Local subscription purchased successfully."
+    )
+  );
 });
 
 // Get astrologers and reviews by user ID

@@ -629,6 +629,34 @@ export const rejectAstrologer = asyncHandler(async (req, res) => {
     );
 });
 
+// Get astrologer request status by userId (for pull-to-refresh on approval screen)
+export const getAstrologerRequestStatusByUserId = asyncHandler(async (req, res) => {
+  const { userId } = req.params;
+
+  // Check if already an approved astrologer
+  const astrologer = await Astrologer.findOne({ userId });
+  if (astrologer) {
+    return res.status(200).json(
+      new ApiResponse(200, { status: "approved", astrologerId: astrologer._id }, "Astrologer approved")
+    );
+  }
+
+  // Check for a pending/rejected request
+  const request = await AstrologerRequest.findOne({ userId });
+  if (request) {
+    return res.status(200).json(
+      new ApiResponse(200, {
+        status: request.request_status,
+        message: request.request_status_message || "",
+      }, "Request found")
+    );
+  }
+
+  return res.status(200).json(
+    new ApiResponse(200, { status: "not_found" }, "No request found")
+  );
+});
+
 // Add balance to astrologer's wallet using userId
 export const addBalanceToAstrologerWallet = asyncHandler(async (req, res) => {
   try {
