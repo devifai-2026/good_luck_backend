@@ -37,19 +37,20 @@ export const createProduct = asyncHandler(async (req, res) => {
     const availableProduct = await Product.findOne({
       productName: productName,
     });
+    
     const availableCategory = await ProductCategory.findById(category);
 
-    if (availableProduct) {
-      return res
-        .status(409)
-        .json(
-          new ApiResponse(
-            409,
-            null,
-            "This product already exists in our inventory. Please consider adding a different product."
-          )
-        );
-    }
+    // if (availableProduct) {
+    //   return res
+    //     .status(409)
+    //     .json(
+    //       new ApiResponse(
+    //         409,
+    //         null,
+    //         "This product already exists in our inventory. Please consider adding a different product."
+    //       )
+    //     );
+    // }
 
     if (!availableCategory) {
       return res

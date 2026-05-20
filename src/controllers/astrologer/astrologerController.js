@@ -724,6 +724,9 @@ export const updateAstrologerById = asyncHandler(async (req, res) => {
     const { id } = req.params;
 
     const {
+      Fname,
+      Lname,
+      phone,
       specialisation,
       chat_price,
       video_price,
@@ -742,6 +745,9 @@ export const updateAstrologerById = asyncHandler(async (req, res) => {
     const astrologer = await Astrologer.findByIdAndUpdate(
       id,
       {
+        Fname,
+        Lname,
+        phone,
         specialisation,
         chat_price,
         video_price,

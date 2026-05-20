@@ -112,7 +112,7 @@ export const getAllRasifal = asyncHandler(async (req, res) => {
     );
 });
 
-// Get Rasifal by date
+// Get Rasifal by date (falls back to most recent entry if none found for the exact date)
 export const getRasifalByDate = asyncHandler(async (req, res) => {
   const { date } = req.params;
   const formattedDate = new Date(date);
@@ -123,7 +123,18 @@ export const getRasifalByDate = asyncHandler(async (req, res) => {
       .json(new ApiResponse(400, null, "Invalid date format"));
   }
 
-  const rasifalEntry = await Rasifal.findOne({ date: formattedDate });
+  const startOfDay = new Date(date + "T00:00:00.000Z");
+  const endOfDay = new Date(date + "T23:59:59.999Z");
+
+  let rasifalEntry = await Rasifal.findOne({
+    date: { $gte: startOfDay, $lte: endOfDay },
+  });
+
+  // Fall back to the most recently uploaded entry if no exact date match
+  if (!rasifalEntry) {
+    rasifalEntry = await Rasifal.findOne().sort({ date: -1 });
+  }
+
   if (!rasifalEntry) {
     return res
       .status(404)
@@ -131,7 +142,7 @@ export const getRasifalByDate = asyncHandler(async (req, res) => {
         new ApiResponse(
           404,
           null,
-          "No Rasifal entry found for the specified date"
+          "No Rasifal entry found"
         )
       );
   }

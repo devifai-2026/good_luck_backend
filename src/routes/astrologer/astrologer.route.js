@@ -20,6 +20,7 @@ import {
   giveReviewToAstrologer,
   rejectAstrologer,
   toggleAstrologerStatus,
+  updateAstrologerById,
   updateRequestAstrologerProfile,
 } from "../../controllers/astrologer/astrologerController.js";
 
@@ -40,6 +41,7 @@ router.route("/approveUpdate/:id").patch(approveUpdateRequest);
 router.get("/update-requests/getAll", getAllUpdateRequestAstrologers);
 router.get("/update-requests/:id", getUpdateRequestAstrologerById);
 router.route("/astroWallet/addBalance/:id").patch(addBalanceToAstrologerWallet);
+router.route("/adminUpdate/:id").patch(updateAstrologerById);
 router.route("/delete/:id").delete(deleteAstrologerById);
 router.get("/wallet-balance/:id", getWalletBalanceById);
 router.get("/transaction-history/:id", getWalletTransactionHistoryById);
