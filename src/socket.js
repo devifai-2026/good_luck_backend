@@ -22,10 +22,17 @@ import {
   handleUserCancelChatRequest,
 } from "./controllers/chatController/astrologerWithUser/controller.js";
 
+let io;
+
+export const getIO = () => {
+  if (!io) throw new Error("Socket.IO not initialized");
+  return io;
+};
+
 export const setupSocketIO = (server) => {
-  const io = new Server(server, {
+  io = new Server(server, {
     cors: {
-      origin: ["http://localhost:3000", "http://192.168.0.100:8081"],
+      origin: ["http://localhost:3000", "http://localhost:5173", "http://192.168.0.100:8081", "http://192.168.1.142:5173"],
       // origin: "*",
       methods: ["GET", "POST", "PATCH", "DELETE"],
       allowedHeaders: ["Content-Type"],
@@ -296,6 +303,12 @@ export const setupSocketIO = (server) => {
 
     socket.on("cancel-chat-request", (data) => {
       handleUserCancelChatRequest(io, data, socket);
+    });
+
+    // Register admin panel to receive order notifications
+    socket.on("register_admin", () => {
+      socket.join("admin_room");
+      console.log(`Admin panel joined admin_room: ${socket.id}`);
     });
 
     // Handle user disconnection

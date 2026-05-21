@@ -5,7 +5,7 @@ import { asyncHandler } from "../../utils/asyncHandler.js";
 // Get total balance
 export const getAdminTotalBalance = asyncHandler(async (req, res) => {
   try {
-    const admin = await Admin.findById(req.params.adminId);
+    const admin = await Admin.findOne();
 
     if (!admin) {
       return res
@@ -32,7 +32,7 @@ export const getAdminTotalBalance = asyncHandler(async (req, res) => {
 // Get all transaction history
 export const getAdminTransactionHistory = asyncHandler(async (req, res) => {
   try {
-    const admin = await Admin.findById(req.params.adminId);
+    const admin = await Admin.findOne();
 
     if (!admin) {
       return res

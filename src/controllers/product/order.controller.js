@@ -9,6 +9,7 @@ import { ApiError } from "../../utils/apiError.js";
 import { ApiResponse } from "../../utils/apiResponse.js";
 import { asyncHandler } from "../../utils/asyncHandler.js";
 import { generateTransactionId } from "../../utils/generateTNX.js";
+import { getIO } from "../../socket.js";
 
 // Create Order
 export const createOrder = asyncHandler(async (req, res) => {
@@ -170,6 +171,21 @@ export const createOrder = asyncHandler(async (req, res) => {
       .populate("order_details")
       .populate("userId", "Fname Lname phone");
 
+    // Notify admin panel via Socket.IO
+    try {
+      const io = getIO();
+      io.to("admin_room").emit("new_order", {
+        orderId: populatedOrder._id,
+        customerName: name,
+        productName: populatedOrder.order_details?.name || "Product",
+        totalPrice: total_price,
+        paymentMethod: payment_method,
+        timestamp: new Date(),
+      });
+    } catch (socketErr) {
+      console.warn("Socket notification failed:", socketErr.message);
+    }
+
     return res
       .status(201)
       .json(new ApiResponse(201, populatedOrder, "Order created successfully"));
@@ -234,13 +250,6 @@ export const getOrdersByUserId = asyncHandler(async (req, res) => {
     const orders = await Order.find({ userId: id })
       .populate("order_details")
       .populate("userId");
-
-    // Check if no orders found
-    if (orders.length === 0) {
-      return res
-        .status(404)
-        .json(new ApiResponse(404, null, "No orders found for this user"));
-    }
 
     return res
       .status(200)
