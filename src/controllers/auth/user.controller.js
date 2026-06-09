@@ -118,7 +118,7 @@ const authRequest = asyncHandler(async (req, res) => {
     // Call sendOTP function here
     const otpResponse = await sendOTP(phone);
 
-    if (!otpResponse) {
+    if (!otpResponse.success) {
       return res
         .status(500)
         .json(new ApiResponse(500, otpResponse.data, "Failed to send OTP"));
@@ -134,6 +134,8 @@ const authRequest = asyncHandler(async (req, res) => {
         )
       );
   } catch (error) {
+    console.error("Error in authRequest:", error);
+
     if (error.name === "ValidationError") {
       // Handle Mongoose validation errors
       const errors = Object.values(error.errors).map((err) => err.message);
@@ -145,7 +147,7 @@ const authRequest = asyncHandler(async (req, res) => {
     // Catch any other errors
     return res
       .status(500)
-      .json(new ApiResponse(500, null, "An unexpected error occurred"));
+      .json(new ApiResponse(500, null, error.message || "An unexpected error occurred"));
   }
 });
 
