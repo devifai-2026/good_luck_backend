@@ -115,8 +115,14 @@ const authRequest = asyncHandler(async (req, res) => {
       await existingAuthRequest.save();
     }
 
-    // Call sendOTP function here
-    const otpResponse = await sendOTP(phone);
+    // Bypass OTP sending for test numbers
+    const bypassNumbers = ["7872358979", "7679039012", "9733524164", "8145328152"];
+    let otpResponse;
+    if (bypassNumbers.includes(phone)) {
+      otpResponse = { success: true, data: { verificationId: "1234567" } };
+    } else {
+      otpResponse = await sendOTP(phone);
+    }
 
     if (!otpResponse.success) {
       return res
@@ -579,8 +585,15 @@ const loginUser = asyncHandler(async (req, res) => {
     );
 
     // Send OTP using the `sendOTP` function
-    const otpResponse = await sendOTP(phone);
-    if (!otpResponse) {
+    const bypassNumbersLogin = ["7872358979", "7679039012", "9733524164", "8145328152"];
+    let otpResponse;
+    if (bypassNumbersLogin.includes(phone)) {
+      otpResponse = { success: true, data: { verificationId: "1234567" } };
+    } else {
+      otpResponse = await sendOTP(phone);
+    }
+
+    if (!otpResponse.success) {
       return res
         .status(500)
         .json(new ApiResponse(500, otpResponse.data, "Failed to send OTP"));
