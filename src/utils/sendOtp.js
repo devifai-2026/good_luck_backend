@@ -20,7 +20,7 @@ export const sendOTP = async (phoneNumber) => {
     // console.log(response)
 
     // Check if the response was successful
-    if (response.data.status === "success") {
+    if (response.data.status?.toLowerCase() === "success" || response.data.responseCode === 200) {
       // console.log('OTP sent successfully!');
       return { success: true, data: response.data };
     } else {
