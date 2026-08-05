@@ -6,6 +6,10 @@ import { ApiResponse } from "../../utils/apiResponse.js";
 import { asyncHandler } from "../../utils/asyncHandler.js";
 import { MatchedProfileDating } from "../../models/dating/matchedProfileDating.model.js";
 import { DatingReportBlock } from "../../models/dating/datingReportBlock.model.js";
+import {
+  withLiveBadges,
+  liveBadgeAddFieldsStage,
+} from "../../utils/subscriptionExpiry.js";
 
 // Create Dating Profile
 export const createDatingProfile = asyncHandler(async (req, res) => {
@@ -83,7 +87,6 @@ export const createDatingProfile = asyncHandler(async (req, res) => {
         orientation,
         interests,
         looking_for,
-        isVerified: true,
       });
       // console.log(newDatingProfile);
 
@@ -138,7 +141,7 @@ export const getAllProfiles = asyncHandler(async (req, res) => {
       .json(
         new ApiResponse(
           200,
-          allProfiles,
+          allProfiles.map(withLiveBadges),
           "Dating profiles retrieved successfully"
         )
       );
@@ -202,7 +205,7 @@ export const getAllDatingProfiles = asyncHandler(async (req, res) => {
       .json(
         new ApiResponse(
           200,
-          filteredDatingProfiles,
+          filteredDatingProfiles.map(withLiveBadges),
           "Dating profiles retrieved successfully"
         )
       );
@@ -229,7 +232,7 @@ export const getDatingProfileByUserId = asyncHandler(async (req, res) => {
       .json(
         new ApiResponse(
           200,
-          datingProfile,
+          withLiveBadges(datingProfile),
           "Dating profile retrieved successfully"
         )
       );
@@ -313,6 +316,7 @@ export const getRandomMaleProfiles = asyncHandler(async (req, res) => {
         },
       },
       { $sample: { size: 5 } }, // Randomly pick 5 profiles
+      liveBadgeAddFieldsStage,
     ]);
 
     return res.status(200).json({
@@ -359,6 +363,7 @@ export const getRandomFemaleProfiles = asyncHandler(async (req, res) => {
         },
       },
       { $sample: { size: 5 } }, // Randomly pick up to 5 profiles
+      liveBadgeAddFieldsStage,
     ]);
 
     if (randomFemaleProfiles.length === 0) {

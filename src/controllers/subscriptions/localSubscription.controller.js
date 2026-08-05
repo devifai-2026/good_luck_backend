@@ -1,32 +1,25 @@
 import { LocalSubscription } from "../../models/subscription/localserviceSubscription.js";
 import { ApiResponse } from "../../utils/apiResponse.js";
 import { asyncHandler } from "../../utils/asyncHandler.js";
+import { applyTierUpdates } from "../../utils/tierSubscriptionHelpers.js";
 
-// POST API to update one_year_plan and one_month_plan prices
+// POST API to create/update the Silver/Gold/Platinum tier prices & features.
+// isPremium/isTrusted are fixed per tier and are never accepted here.
 export const createLocalSubscription = asyncHandler(async (req, res) => {
-  const { one_month_plan, one_year_plan } = req.body;
-
-  // Validate input
-  if (one_month_plan === undefined && one_year_plan === undefined) {
-    return res
-      .status(400)
-      .json(new ApiResponse(400, null, "At least one price is required"));
-  }
-
-  // Find the LocalSubscription (assuming a single document in the collection)
   let subscription = await LocalSubscription.findOne();
 
-  // If no LocalSubscription exists, create a new one
   if (!subscription) {
     subscription = new LocalSubscription({});
   }
 
-  // Update the prices
-  if (one_month_plan !== undefined)
-    subscription.one_month_plan = one_month_plan;
-  if (one_year_plan !== undefined) subscription.one_year_plan = one_year_plan;
+  const updated = applyTierUpdates(subscription, req.body);
 
-  // Save the updated subscription
+  if (!updated) {
+    return res
+      .status(400)
+      .json(new ApiResponse(400, null, "At least one tier's price or features are required"));
+  }
+
   await subscription.save();
 
   return res
@@ -35,21 +28,18 @@ export const createLocalSubscription = asyncHandler(async (req, res) => {
       new ApiResponse(
         200,
         subscription,
-        "Subscription prices updated successfully"
+        "Subscription plans updated successfully"
       )
     );
 });
 
-// GET API to fetch local subscription prices
+// GET API to fetch local subscription tiers (Silver/Gold/Platinum)
 export const getLocalSubscription = asyncHandler(async (req, res) => {
-  // Find the LocalSubscription (assuming a single document in the collection)
-  const subscription = await LocalSubscription.findOne();
+  let subscription = await LocalSubscription.findOne();
 
-  // Check if a subscription document exists
+  // If no config exists yet, create one so the app always has tiers to show
   if (!subscription) {
-    return res
-      .status(200)
-      .json(new ApiResponse(200, null, "Subscription not found"));
+    subscription = await LocalSubscription.create({});
   }
 
   return res
@@ -58,39 +48,22 @@ export const getLocalSubscription = asyncHandler(async (req, res) => {
       new ApiResponse(
         200,
         subscription,
-        "Subscription prices fetched successfully"
+        "Subscription plans fetched successfully"
       )
     );
 });
 
-// Function to update local subscription prices
+// Function to update Local subscription tier prices/features
 export const updateLocalSubscription = asyncHandler(async (req, res) => {
-  const { one_month_plan, one_year_plan } = req.body;
   const { subscriptionId } = req.params;
-  // Validate input
+
   if (!subscriptionId) {
     return res
       .status(400)
       .json(new ApiResponse(400, null, "Subscription ID is required"));
   }
 
-  if (one_month_plan === undefined && one_year_plan === undefined) {
-    return res
-      .status(400)
-      .json(new ApiResponse(400, null, "At least one price is required"));
-  }
-
-  // Prepare the update object
-  const updateData = {};
-  if (one_month_plan !== undefined) updateData.one_month_plan = one_month_plan;
-  if (one_year_plan !== undefined) updateData.one_year_plan = one_year_plan;
-
-  // Find the LocalSubscription by ID and update it
-  const subscription = await LocalSubscription.findByIdAndUpdate(
-    subscriptionId,
-    updateData,
-    { new: true, runValidators: true }
-  );
+  const subscription = await LocalSubscription.findById(subscriptionId);
 
   if (!subscription) {
     return res
@@ -98,29 +71,37 @@ export const updateLocalSubscription = asyncHandler(async (req, res) => {
       .json(new ApiResponse(404, null, "Subscription not found"));
   }
 
+  const updated = applyTierUpdates(subscription, req.body);
+
+  if (!updated) {
+    return res
+      .status(400)
+      .json(new ApiResponse(400, null, "At least one tier's price or features are required"));
+  }
+
+  await subscription.save();
+
   return res
     .status(200)
     .json(
       new ApiResponse(
         200,
         subscription,
-        "Subscription prices updated successfully"
+        "Subscription plans updated successfully"
       )
     );
 });
 
-// Function to delete a local subscription
+// Function to delete a Local subscription config document
 export const deleteLocalSubscription = asyncHandler(async (req, res) => {
   const { subscriptionId } = req.params;
 
-  // Validate input
   if (!subscriptionId) {
     return res
       .status(400)
       .json(new ApiResponse(400, null, "Subscription ID is required"));
   }
 
-  // Find the LocalSubscription by ID and delete it
   const subscription =
     await LocalSubscription.findByIdAndDelete(subscriptionId);
 

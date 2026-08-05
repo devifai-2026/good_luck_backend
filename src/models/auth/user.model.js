@@ -58,6 +58,19 @@ const usersSchema = new Schema(
         type: Boolean,
         default: false,
       },
+      tier: {
+        type: String,
+        enum: ["silver", "gold", "platinum", null],
+        default: null,
+      },
+      isPremium: {
+        type: Boolean,
+        default: false,
+      },
+      isTrusted: {
+        type: Boolean,
+        default: false,
+      },
       isPromoApplied: {
         type: Boolean,
         default: false,
@@ -103,6 +116,19 @@ const usersSchema = new Schema(
         type: Boolean,
         default: false,
       },
+      tier: {
+        type: String,
+        enum: ["silver", "gold", "platinum", null],
+        default: null,
+      },
+      isPremium: {
+        type: Boolean,
+        default: false,
+      },
+      isTrusted: {
+        type: Boolean,
+        default: false,
+      },
       category: {
         type: String,
         default: "1 month",
@@ -126,6 +152,19 @@ const usersSchema = new Schema(
         type: Boolean,
         default: false,
       },
+      tier: {
+        type: String,
+        enum: ["silver", "gold", "platinum", null],
+        default: null,
+      },
+      isPremium: {
+        type: Boolean,
+        default: false,
+      },
+      isTrusted: {
+        type: Boolean,
+        default: false,
+      },
       category: {
         type: String,
         default: "1 month",
@@ -146,6 +185,19 @@ const usersSchema = new Schema(
         ref: "LocalSubscription",
       },
       isSubscribed: {
+        type: Boolean,
+        default: false,
+      },
+      tier: {
+        type: String,
+        enum: ["silver", "gold", "platinum", null],
+        default: null,
+      },
+      isPremium: {
+        type: Boolean,
+        default: false,
+      },
+      isTrusted: {
         type: Boolean,
         default: false,
       },

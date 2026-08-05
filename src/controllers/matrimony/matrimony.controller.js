@@ -4,6 +4,10 @@ import { MatrimonyReportBlock } from "../../models/matrimony/matrimonyReportBloc
 import { ApiResponse } from "../../utils/apiResponse.js";
 import { asyncHandler } from "../../utils/asyncHandler.js";
 import { mongoose } from "mongoose";
+import {
+  withLiveBadges,
+  liveBadgeAddFieldsStage,
+} from "../../utils/subscriptionExpiry.js";
 
 // Create Matrimony Profile
 export const createMatrimonyProfile = asyncHandler(async (req, res) => {
@@ -73,7 +77,6 @@ export const createMatrimonyProfile = asyncHandler(async (req, res) => {
         searching_for,
         facebookLink: facebookLink || null,
         whatsappNumber: whatsappNumber || existsUser.phone,
-        isVerified: true,
       });
 
       await newMatrimonyProfile.save();
@@ -130,7 +133,7 @@ export const getAllProfile = asyncHandler(async (req, res) => {
       .json(
         new ApiResponse(
           200,
-          matrimonyProfiles,
+          matrimonyProfiles.map(withLiveBadges),
           "Matrimony profiles retrieved successfully"
         )
       );
@@ -217,6 +220,7 @@ export const getAllMatrimonyProfile = asyncHandler(async (req, res) => {
           ageDifference: 1,
         },
       },
+      liveBadgeAddFieldsStage,
       {
         $project: {
           _id: 1,
@@ -237,6 +241,9 @@ export const getAllMatrimonyProfile = asyncHandler(async (req, res) => {
           facebookLink: 1,
           whatsappNumber: 1,
           createdAt: 1,
+          isPremium: 1,
+          isVerified: 1,
+          subscriptionTier: 1,
           // Include any calculated fields
           ageDifference: 1,
         },
@@ -279,7 +286,7 @@ export const getMatrimonyProfileByUserId = asyncHandler(async (req, res) => {
     .json(
       new ApiResponse(
         200,
-        matrimonyProfile,
+        withLiveBadges(matrimonyProfile),
         "Matrimony profile retrieved successfully"
       )
     );
@@ -368,6 +375,7 @@ export const getRandomGrooms = asyncHandler(async (req, res) => {
         },
       },
       { $sample: { size: 5 } }, // Get 5 random profiles
+      liveBadgeAddFieldsStage,
       {
         $project: {
           userId: 1,
@@ -386,6 +394,9 @@ export const getRandomGrooms = asyncHandler(async (req, res) => {
           searching_for: 1,
           facebookLink: 1,
           whatsappNumber: 1,
+          isPremium: 1,
+          isVerified: 1,
+          subscriptionTier: 1,
         },
       },
     ]);
@@ -446,6 +457,7 @@ export const getRandomBrides = asyncHandler(async (req, res) => {
         },
       },
       { $sample: { size: 5 } }, // Get 5 random profiles
+      liveBadgeAddFieldsStage,
       {
         $project: {
           userId: 1,
@@ -464,6 +476,9 @@ export const getRandomBrides = asyncHandler(async (req, res) => {
           searching_for: 1,
           facebookLink: 1,
           whatsappNumber: 1,
+          isPremium: 1,
+          isVerified: 1,
+          subscriptionTier: 1,
         },
       },
     ]);

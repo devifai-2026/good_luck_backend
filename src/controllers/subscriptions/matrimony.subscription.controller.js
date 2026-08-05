@@ -1,32 +1,25 @@
 import { MatrimonySubscription } from "../../models/subscription/matrimony.subscription.js";
 import { ApiResponse } from "../../utils/apiResponse.js";
 import { asyncHandler } from "../../utils/asyncHandler.js";
+import { applyTierUpdates } from "../../utils/tierSubscriptionHelpers.js";
 
-// POST API to update one_year_plan and one_month_plan prices
+// POST API to create/update the Silver/Gold/Platinum tier prices & features.
+// isPremium/isTrusted are fixed per tier and are never accepted here.
 export const createMatrimonySubscription = asyncHandler(async (req, res) => {
-  const { one_month_plan, one_year_plan } = req.body;
-
-  // Validate input
-  if (one_month_plan === undefined && one_year_plan === undefined) {
-    return res
-      .status(400)
-      .json(new ApiResponse(400, null, "At least one price is required"));
-  }
-
-  // Find the AdSubscription (assuming a single document in the collection)
   let subscription = await MatrimonySubscription.findOne();
 
-  // If no AdSubscription exists, create a new one
   if (!subscription) {
     subscription = new MatrimonySubscription({});
   }
 
-  // Update the prices
-  if (one_month_plan !== undefined)
-    subscription.one_month_plan = one_month_plan;
-  if (one_year_plan !== undefined) subscription.one_year_plan = one_year_plan;
+  const updated = applyTierUpdates(subscription, req.body);
 
-  // Save the updated subscription
+  if (!updated) {
+    return res
+      .status(400)
+      .json(new ApiResponse(400, null, "At least one tier's price or features are required"));
+  }
+
   await subscription.save();
 
   return res
@@ -35,21 +28,19 @@ export const createMatrimonySubscription = asyncHandler(async (req, res) => {
       new ApiResponse(
         200,
         subscription,
-        "Subscription prices updated successfully"
+        "Subscription plans updated successfully"
       )
     );
 });
 
-// GET API to fetch matrimony subscription prices
+// GET API to fetch matrimony subscription tiers (Silver/Gold/Platinum)
 export const getMatrimonySubscription = asyncHandler(async (req, res) => {
   // Find the MatrimonySubscription (assuming a single document in the collection)
-  const subscription = await MatrimonySubscription.findOne();
+  let subscription = await MatrimonySubscription.findOne();
 
-  // Check if a subscription document exists
+  // If no config exists yet, create one so the app always has tiers to show
   if (!subscription) {
-    return res
-      .status(200)
-      .json(new ApiResponse(200, null, "Subscription not found"));
+    subscription = await MatrimonySubscription.create({});
   }
 
   return res
@@ -58,40 +49,22 @@ export const getMatrimonySubscription = asyncHandler(async (req, res) => {
       new ApiResponse(
         200,
         subscription,
-        "Subscription prices fetched successfully"
+        "Subscription plans fetched successfully"
       )
     );
 });
 
-// Function to update Ad subscription prices
+// Function to update Matrimony subscription tier prices/features
 export const updateMatrimonySubscription = asyncHandler(async (req, res) => {
   const { subscriptionId } = req.params;
-  const { one_month_plan, one_year_plan } = req.body;
 
-  // Validate input
   if (!subscriptionId) {
     return res
       .status(400)
       .json(new ApiResponse(400, null, "Subscription ID is required"));
   }
 
-  if (one_month_plan === undefined && one_year_plan === undefined) {
-    return res
-      .status(400)
-      .json(new ApiResponse(400, null, "At least one price is required"));
-  }
-
-  // Prepare the update object
-  const updateData = {};
-  if (one_month_plan !== undefined) updateData.one_month_plan = one_month_plan;
-  if (one_year_plan !== undefined) updateData.one_year_plan = one_year_plan;
-
-  // Find the AdSubscription by ID and update it
-  const subscription = await MatrimonySubscription.findByIdAndUpdate(
-    subscriptionId,
-    updateData,
-    { new: true, runValidators: true }
-  );
+  const subscription = await MatrimonySubscription.findById(subscriptionId);
 
   if (!subscription) {
     return res
@@ -99,18 +72,28 @@ export const updateMatrimonySubscription = asyncHandler(async (req, res) => {
       .json(new ApiResponse(404, null, "Subscription not found"));
   }
 
+  const updated = applyTierUpdates(subscription, req.body);
+
+  if (!updated) {
+    return res
+      .status(400)
+      .json(new ApiResponse(400, null, "At least one tier's price or features are required"));
+  }
+
+  await subscription.save();
+
   return res
     .status(200)
     .json(
       new ApiResponse(
         200,
         subscription,
-        "Subscription prices updated successfully"
+        "Subscription plans updated successfully"
       )
     );
 });
 
-// Function to delete an Ad subscription
+// Function to delete a Matrimony subscription config document
 export const deleteMatrimonySubscription = asyncHandler(async (req, res) => {
   const { subscriptionId } = req.params;
 

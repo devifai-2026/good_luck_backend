@@ -96,9 +96,24 @@ const matrimonySchema = new Schema(
       type: String,
       // required: true,
     },
+    // Trusted badge — only true while a Platinum subscription is active.
     isVerified: {
       type: Boolean,
       default: false,
+    },
+    // Premium tag — true while a Gold or Platinum subscription is active.
+    isPremium: {
+      type: Boolean,
+      default: false,
+    },
+    subscriptionTier: {
+      type: String,
+      enum: ["silver", "gold", "platinum", null],
+      default: null,
+    },
+    subscriptionEndDate: {
+      type: Date,
+      default: null,
     },
     see_limit: {
       type: Boolean,
