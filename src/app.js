@@ -61,6 +61,7 @@ import razorpayRouter from "./routes/payment/razorpay.routes.js";
 import calenderEventRouter from "./routes/calenderEvent/calenderEvent.routes.js";
 import commissionRouter from "./routes/commission/commission.routes.js";
 import affiliateRouter from "./routes/affiliate/affiliate.routes.js";
+import astrologyPricingRouter from "./routes/settings/astrologyPricing.routes.js";
 
 // Use routes
 app.use("/good_luck/api/v1/admin", adminRoutes);
@@ -97,6 +98,7 @@ app.use("/good_luck/api/v1/calender-event", calenderEventRouter);
 app.use("/good_luck/api/v1/admin-ads", adminAdRoutes);
 app.use("/good_luck/api/v1/commission", commissionRouter);
 app.use("/good_luck/api/v1/affiliate", affiliateRouter);
+app.use("/good_luck/api/v1/astrology-pricing", astrologyPricingRouter);
 app.use("/", paymentRouter);
 app.use("/good_luck/api/v1", razorpayRouter);
 
