@@ -1194,7 +1194,7 @@ const getUserProfileDetailsById = asyncHandler(async (req, res) => {
 
     // Find the user by ID
     const user = await User.findById(userId).select(
-      "authId Fname Lname gender date_of_birth profile_picture phone last_login services isVerified isActive isAdmin"
+      "authId Fname Lname gender date_of_birth profile_picture phone last_login services isVerified isActive isAdmin superNote"
     );
 
     if (!user) {
