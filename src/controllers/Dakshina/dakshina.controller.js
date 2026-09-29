@@ -114,10 +114,13 @@ export const deleteDakshinaById = asyncHandler(async (req, res) => {
 // POST API for Payment
 export const makePayment = asyncHandler(async (req, res) => {
   try {
-    const { userId, amount } = req.body;
+    const { userId } = req.body;
+    // App sends the amount as a string; cast it so `+=` adds instead of
+    // concatenating ("2000" + "101" => "2000101").
+    const amount = Number(req.body.amount);
 
     // Validate required fields
-    if (!userId || !amount) {
+    if (!userId || !amount || amount <= 0) {
       return res
         .status(400)
         .json(new ApiResponse(400, null, "userId, amount are required"));

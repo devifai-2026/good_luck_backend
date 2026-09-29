@@ -163,7 +163,8 @@ export const createOrder = asyncHandler(async (req, res) => {
       amount: total_price,
       description: "Payment for order",
     });
-    user.superNote = (user.superNote || 0) + total_price;
+    // Credit the amount actually paid as Super Note
+    user.superNote = (Number(user.superNote) || 0) + Number(total_price);
     await user.save();
 
     // Populate the order data for response

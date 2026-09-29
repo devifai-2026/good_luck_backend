@@ -1070,7 +1070,8 @@ const logoutUser = asyncHandler(async (req, res) => {
 // Add Balance to User Wallet
 const addWalletBalance = asyncHandler(async (req, res) => {
   const { userId } = req.params;
-  const { amount, description, transactionId } = req.body;
+  const { description, transactionId } = req.body;
+  const amount = Number(req.body.amount);
 
   // Check if the required fields are provided
   if (!userId || !amount || amount <= 0) {
@@ -1410,7 +1411,7 @@ const purchaseTierSubscription = async ({
     price,
   };
 
-  user.superNote = (user.superNote || 0) + price;
+  user.superNote = (Number(user.superNote) || 0) + Number(price);
 
   await user.save();
 
