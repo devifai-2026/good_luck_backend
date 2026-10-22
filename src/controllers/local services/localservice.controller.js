@@ -4,6 +4,7 @@ import { LocalService } from "../../models/local services/localservice.model.js"
 import { LocalServiceCategory } from "../../models/local services/localserviceCategory.model.js";
 import { ApiResponse } from "../../utils/apiResponse.js";
 import { asyncHandler } from "../../utils/asyncHandler.js";
+import { isSubscriptionActive } from "../../utils/tierSubscriptionHelpers.js";
 
 // Create a Local Service with Subscription Check
 export const createLocalService = asyncHandler(async (req, res, next) => {
@@ -68,7 +69,7 @@ export const createLocalService = asyncHandler(async (req, res, next) => {
     }
 
     // Check subscription
-    if (!user.localSubscription || !user.localSubscription.isSubscribed) {
+    if (!isSubscriptionActive(user.localSubscription)) {
       return res
         .status(403)
         .json(

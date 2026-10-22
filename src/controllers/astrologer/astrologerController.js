@@ -9,24 +9,7 @@ import { Astrologer } from "../../models/astrologer/astroler.model.js";
 import { Auth } from "../../models/auth/auth.model.js";
 import AstrologerRequest from "../../models/astrologer/astrologerRequest.model.js";
 import { generateTransactionId } from "../../utils/generateTNX.js";
-
-// Function to generate a unique 4-digit promo code
-const generateUniquePromoCode = async () => {
-  let promoCode;
-  let isUnique = false;
-
-  while (!isUnique) {
-    promoCode = Math.floor(1000 + Math.random() * 9000); // Generate a 4-digit number
-    const existingAstrologer = await Astrologer.findOne({
-      promo_code: promoCode,
-    });
-    if (!existingAstrologer) {
-      isUnique = true;
-    }
-  }
-
-  return promoCode;
-};
+import generateUniquePromoCode from "../../utils/generatePromocode.js";
 
 // Create Astrologer Request
 export const createAstrologerRequest = asyncHandler(async (req, res) => {

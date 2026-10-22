@@ -32,7 +32,7 @@ export const getIO = () => {
 export const setupSocketIO = (server) => {
   io = new Server(server, {
     cors: {
-      origin: ["http://localhost:3000", "http://localhost:5173", "http://192.168.0.100:8081", "http://192.168.1.142:5173"],
+      origin: ["http://localhost:3000", "http://localhost:5173", "http://192.168.0.100:8081", "http://192.168.1.142:5173", "https://goodluckadmin.netlify.app"],
       // origin: "*",
       methods: ["GET", "POST", "PATCH", "DELETE"],
       allowedHeaders: ["Content-Type"],

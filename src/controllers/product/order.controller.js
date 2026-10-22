@@ -3,13 +3,14 @@ import AffiliateMarketer from "../../models/affiliateMarketer/affiliateMarketer.
 import { Astrologer } from "../../models/astrologer/astroler.model.js";
 import { User } from "../../models/auth/user.model.js";
 import CommissionHistory from "../../models/commission/commission.model.js";
-import Order from "../../models/product/order.model.js";
+import Order, { ORDER_STATUSES } from "../../models/product/order.model.js";
 import Product from "../../models/product/product.model.js";
 import { ApiError } from "../../utils/apiError.js";
 import { ApiResponse } from "../../utils/apiResponse.js";
 import { asyncHandler } from "../../utils/asyncHandler.js";
 import { generateTransactionId } from "../../utils/generateTNX.js";
 import { getIO } from "../../socket.js";
+import sendNotification from "../../utils/onesignal.js";
 
 // Create Order
 export const createOrder = asyncHandler(async (req, res) => {
@@ -83,6 +84,8 @@ export const createOrder = asyncHandler(async (req, res) => {
       transaction_id: finalTransactionId,
       isPromoCodeApplied: promo_code !== undefined,
       isSuperNoteApplied,
+      status: "placed",
+      status_history: [{ status: "placed", note: "Order placed" }],
     });
 
     await newOrder.save();
@@ -178,7 +181,7 @@ export const createOrder = asyncHandler(async (req, res) => {
       io.to("admin_room").emit("new_order", {
         orderId: populatedOrder._id,
         customerName: name,
-        productName: populatedOrder.order_details?.name || "Product",
+        productName: populatedOrder.order_details?.productName || "Product",
         totalPrice: total_price,
         paymentMethod: payment_method,
         timestamp: new Date(),
@@ -201,14 +204,26 @@ export const createOrder = asyncHandler(async (req, res) => {
 // Get All Orders
 export const getAllOrders = asyncHandler(async (req, res) => {
   try {
+    // Orders created before the status field existed: derive it once from
+    // is_order_complete so they don't all show up as "placed".
+    await Order.updateMany(
+      { status: { $exists: false }, is_order_complete: true },
+      { $set: { status: "delivered" } }
+    );
+    await Order.updateMany(
+      { status: { $exists: false } },
+      { $set: { status: "placed" } }
+    );
+
     const orders = await Order.find()
+      .sort({ createdAt: -1 })
       .populate("order_details")
       .populate("userId");
 
     if (!orders || orders.length === 0) {
       return res
         .status(200)
-        .json(new ApiResponse(200, null, "No orders found"));
+        .json(new ApiResponse(200, [], "No orders found"));
     }
 
     return res
@@ -306,6 +321,71 @@ export const updateOrderById = asyncHandler(async (req, res) => {
   } catch (error) {
     throw new ApiError(500, error.message);
   }
+});
+
+const STATUS_LABELS = {
+  placed: "Placed",
+  confirmed: "Confirmed",
+  shipped: "Shipped",
+  delivered: "Delivered",
+  cancelled: "Cancelled",
+};
+
+// Admin: manually move an order to a new fulfilment status (with optional
+// courier tracking id / delivery date / note). Every change is appended to
+// status_history and the customer gets a push notification.
+export const updateOrderStatus = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const { status, note, tracking_id, delivery_date } = req.body;
+
+  if (!ORDER_STATUSES.includes(status)) {
+    return res
+      .status(400)
+      .json(
+        new ApiResponse(
+          400,
+          null,
+          `Invalid status. Allowed: ${ORDER_STATUSES.join(", ")}`
+        )
+      );
+  }
+
+  const order = await Order.findById(id).populate("order_details");
+  if (!order) {
+    return res.status(404).json(new ApiResponse(404, null, "Order not found"));
+  }
+
+  const statusChanged = order.status !== status;
+
+  order.status = status;
+  order.is_order_complete = status === "delivered";
+  if (tracking_id !== undefined) order.tracking_id = tracking_id || null;
+  if (delivery_date) order.delivery_date = delivery_date;
+
+  if (statusChanged || note) {
+    order.status_history.push({ status, note: note || "" });
+  }
+
+  await order.save();
+
+  if (statusChanged && order.userId) {
+    const user = await User.findById(order.userId).select("phone");
+    if (user?.phone) {
+      const productName = order.order_details?.productName || "order";
+      // Fire-and-forget: a push failure must not fail the admin's update.
+      sendNotification(
+        user.phone,
+        `Order ${STATUS_LABELS[status]}`,
+        `Your ${productName} order is now ${STATUS_LABELS[status].toLowerCase()}.${
+          note ? ` ${note}` : ""
+        }`
+      );
+    }
+  }
+
+  return res
+    .status(200)
+    .json(new ApiResponse(200, order, "Order status updated successfully"));
 });
 
 // // Cancel Order

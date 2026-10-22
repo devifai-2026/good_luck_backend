@@ -7,6 +7,7 @@ import {
   getOrderById,
   getOrdersByUserId,
   updateOrderById,
+  updateOrderStatus,
 } from "../../controllers/product/order.controller.js";
 
 const router = Router();
@@ -16,6 +17,7 @@ router.route("/").get(getAllOrders);
 router.route("/:id").get(getOrderById);
 router.route("/user/:id").get(getOrdersByUserId);
 router.route("/update/:id").patch(updateOrderById);
+router.route("/status/:id").patch(updateOrderStatus);
 // router.route("/cancel/:id").patch(cancelOrder);
 router.route("/delete/:id").delete(deleteOrder);
 

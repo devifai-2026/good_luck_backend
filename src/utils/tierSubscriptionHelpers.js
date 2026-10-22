@@ -22,3 +22,12 @@ export const applyTierUpdates = (subscriptionDoc, body) => {
 
   return updated;
 };
+
+// A subscription is only usable while it's flagged subscribed AND not past its
+// endDate — nothing flips isSubscribed back to false on expiry.
+export const isSubscriptionActive = (subscription) =>
+  Boolean(
+    subscription?.isSubscribed &&
+      subscription?.endDate &&
+      new Date(subscription.endDate) > new Date()
+  );

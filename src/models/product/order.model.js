@@ -3,6 +3,14 @@ import { validatePhoneNumber } from "../../utils/validatePhoneNumber.js";
 
 const { Schema, model } = mongoose;
 
+export const ORDER_STATUSES = [
+  "placed",
+  "confirmed",
+  "shipped",
+  "delivered",
+  "cancelled",
+];
+
 const orderSchema = new Schema(
   {
     userId: {
@@ -45,6 +53,26 @@ const orderSchema = new Schema(
       type: Boolean,
       default: false,
     },
+    // Manual fulfilment status set by admin. is_order_complete is kept in sync
+    // (true only when "delivered") for older app builds that still read it.
+    status: {
+      type: String,
+      enum: ORDER_STATUSES,
+      default: "placed",
+    },
+    tracking_id: {
+      type: String,
+      trim: true,
+      default: null,
+    },
+    status_history: [
+      {
+        _id: false,
+        status: { type: String, enum: ORDER_STATUSES },
+        note: { type: String, trim: true, default: "" },
+        changedAt: { type: Date, default: Date.now },
+      },
+    ],
     // cancel_order: {
     //   isCancel: {
     //     type: Boolean,

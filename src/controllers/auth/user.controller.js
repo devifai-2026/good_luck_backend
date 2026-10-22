@@ -1229,7 +1229,28 @@ const getUserProfileDetailsById = asyncHandler(async (req, res) => {
 const updateUserById = asyncHandler(async (req, res) => {
   try {
     const { userId } = req.params;
-    const updateData = req.body;
+
+    // Only plain profile fields are editable here. Subscriptions, wallet,
+    // isAdmin etc. must never be settable from the client — otherwise a user
+    // could PATCH { "localSubscription.isSubscribed": true } and skip payment.
+    const ALLOWED_PROFILE_FIELDS = [
+      "Fname",
+      "Lname",
+      "profile_picture",
+      "phone",
+      "date_of_birth",
+      "gender",
+    ];
+    const updateData = {};
+    for (const field of ALLOWED_PROFILE_FIELDS) {
+      if (req.body[field] !== undefined) updateData[field] = req.body[field];
+    }
+
+    if (Object.keys(updateData).length === 0) {
+      return res
+        .status(400)
+        .json(new ApiResponse(400, null, "No valid profile fields to update"));
+    }
 
     // Find and update the user by ID
     const updatedUser = await User.findByIdAndUpdate(
@@ -1275,14 +1296,23 @@ const buyAdSubscription = asyncHandler(async (req, res) => {
   // The payment already moved via Razorpay above, so an invalid/unknown
   // promo code just skips the bonus commission rather than failing the
   // whole purchase.
-  if (promoCode) {
+  // Promo codes are 4-digit numbers; anything else (e.g. "ABCD") would throw a
+  // CastError on Astrologer.promo_code/User.adSubscription.promo_code (Number)
+  // AFTER the user has already paid, so treat it as "no promo" instead.
+  if (promoCode && /^\d+$/.test(String(promoCode).trim())) {
     const affiliate = await AffiliateMarketer.findOne({
-      promo_code: promoCode,
+      promo_code: String(promoCode).trim(),
     });
-    const astrologer = await Astrologer.findOne({ promo_code: promoCode });
+    const astrologer = affiliate
+      ? null
+      : await Astrologer.findOne({ promo_code: Number(promoCode) });
     const promoUser = affiliate || astrologer;
 
-    if (promoUser) {
+    // A promoter can't earn commission on their own purchase.
+    const isOwnPromoCode =
+      promoUser && String(promoUser.userId) === String(userId);
+
+    if (promoUser && !isOwnPromoCode) {
       // Redirect 20% of the commission purchaseTierSubscription just
       // credited to the admin over to the promo user instead.
       const promoUserCommission = 0.2 * subscription.price;
@@ -1377,6 +1407,15 @@ const purchaseTierSubscription = async ({
     throw new ApiError(400, "Payment verification failed. Invalid signature.");
   }
 
+  // A captured Razorpay payment must only ever grant one subscription —
+  // block replaying the same paymentId for another user/service.
+  const paymentAlreadyUsed = await User.exists({
+    "wallet.transactionHistory.transactionId": paymentId,
+  });
+  if (paymentAlreadyUsed) {
+    throw new ApiError(400, "This payment has already been used.");
+  }
+
   if (!(await fetchAndVerifyPaidAmount(paymentId, price))) {
     throw new ApiError(
       400,
@@ -1399,7 +1438,12 @@ const purchaseTierSubscription = async ({
     transactionId: paymentId,
   });
 
+  // Renewing must not wipe the list of ads the user already posted
+  // (only adSubscription has adsDetails).
+  const existingAdsDetails = user[subscriptionField]?.adsDetails;
+
   user[subscriptionField] = {
+    ...(existingAdsDetails ? { adsDetails: existingAdsDetails } : {}),
     plan: subscriptionPlans._id,
     isSubscribed: true,
     tier,
@@ -1615,8 +1659,16 @@ const checkPromoCode = asyncHandler(async (req, res) => {
       .json(new ApiResponse(400, null, "Promo code is required"));
   }
 
+  // Promo codes are numeric; a non-numeric value would throw a CastError on
+  // Astrologer.promo_code (Number) instead of returning "not found".
+  if (!/^\d+$/.test(String(promoCode).trim())) {
+    return res
+      .status(404)
+      .json(new ApiResponse(404, null, "Promo code not found"));
+  }
+
   // Check promo code in Astrologer collection
-  const astrologer = await Astrologer.findOne({ promo_code: promoCode });
+  const astrologer = await Astrologer.findOne({ promo_code: Number(promoCode) });
   if (astrologer) {
     return res.status(200).json(
       new ApiResponse(

@@ -3,6 +3,7 @@ import { ServiceAds } from "../../models/advertisement/service.model.js";
 import { User } from "../../models/auth/user.model.js";
 import { ApiResponse } from "../../utils/apiResponse.js";
 import handleValidationError from "../../utils/validationError.js";
+import { isSubscriptionActive } from "../../utils/tierSubscriptionHelpers.js";
 
 // Create a JobBanner ad and a corresponding ServiceAd
 export const createJobBannerAd = async (req, res, next) => {
@@ -37,7 +38,7 @@ export const createJobBannerAd = async (req, res, next) => {
     }
 
     // Step 3: Check if the user has an active subscription
-    if (!user.adSubscription || !user.adSubscription.isSubscribed) {
+    if (!isSubscriptionActive(user.adSubscription)) {
       return res
         .status(403)
         .json(
