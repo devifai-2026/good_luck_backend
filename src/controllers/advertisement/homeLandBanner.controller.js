@@ -3,7 +3,14 @@ import { ServiceAds } from "../../models/advertisement/service.model.js";
 import { User } from "../../models/auth/user.model.js";
 import { ApiResponse } from "../../utils/apiResponse.js";
 import handleValidationError from "../../utils/validationError.js";
-import { isSubscriptionActive } from "../../utils/tierSubscriptionHelpers.js";
+import {
+  activeAdFilter,
+  createAdWithCredit,
+  isEditWindowOpen,
+  stripProtectedAdFields,
+  withAdMeta,
+  withAdMetaList,
+} from "../../utils/adValidity.js";
 
 // Create a HomeBanner ad and a corresponding ServiceAd
 export const createHomeLandBannerAd = async (req, res, next) => {
@@ -33,33 +40,40 @@ export const createHomeLandBannerAd = async (req, res, next) => {
         .json(new ApiResponse(400, null, "User is not verified"));
     }
 
-    // Step 3: Check if the user has an active subscription
-    if (!isSubscriptionActive(user.adSubscription)) {
+    // Step 3: Create the ad with one of the user's paid credits for this
+    // category — the ad's validity comes from the plan that credit was
+    // bought with. Every ad needs its own payment.
+    const homeLandBannerAd = await createAdWithCredit({
+      userId,
+      adType: "HomeLandBanner",
+      createAd: (validityFields) =>
+        HomeLandBanner.create({
+          userId,
+          title,
+          city,
+          state,
+          pincode,
+          phone: phone || user.phone,
+          price,
+          banner_url,
+          category,
+          ...validityFields,
+        }),
+    });
+
+    if (!homeLandBannerAd) {
       return res
         .status(403)
         .json(
           new ApiResponse(
             403,
             null,
-            "User does not have an active subscription to create ads"
+            "Please purchase a plan to post this ad"
           )
         );
     }
 
-    // Step 4: Proceed with the creation of the HomeBannerAd
-    const homeLandBannerAd = await HomeLandBanner.create({
-      userId,
-      title,
-      city,
-      state,
-      pincode,
-      phone: phone || user.phone,
-      price,
-      banner_url,
-      category,
-    });
-
-    // Step 5: Create the corresponding ServiceAd
+    // Step 4: Create the corresponding ServiceAd
     const serviceAd = await ServiceAds.create({
       userId,
       homeAdType: "HomeLandBanner",
@@ -69,33 +83,14 @@ export const createHomeLandBannerAd = async (req, res, next) => {
       generale_ads: null,
     });
 
-    // Step 6: Add the ad ID to the user's adSubscription adsDetails
-    user.adSubscription.adsDetails.push({
-      adType: "HomeLandBanner",
-      adId: homeLandBannerAd._id,
-      details: {
-        title,
-        city,
-        state,
-        pincode,
-        phone: phone || user.phone,
-        price,
-        banner_url,
-        category,
-      },
-    });
-
-    // Save the updated user
-    await user.save();
-
-    // Step 7: Return the success response
+    // Step 5: Return the success response
     res
       .status(201)
       .json(
         new ApiResponse(
           201,
           { homeLandBannerAd, serviceAd },
-          "Ad created successfully and added to subscription details"
+          "Ad created successfully"
         )
       );
   } catch (error) {
@@ -114,7 +109,7 @@ export const createHomeLandBannerAd = async (req, res, next) => {
 // Get all HomeBanner ads
 export const getAllHomeLandBannerAds = async (req, res, next) => {
   try {
-    const homeLandBannerAds = await HomeLandBanner.find();
+    const homeLandBannerAds = withAdMetaList(await HomeLandBanner.find(activeAdFilter()));
     res
       .status(200)
       .json(
@@ -136,7 +131,7 @@ export const getHomeLandBannerAdsByUserId = async (req, res, next) => {
     }
 
     // Step 2: If user is found, fetch the HomeBanner ads for that user
-    const homeLandBannerAds = await HomeLandBanner.find({ userId });
+    const homeLandBannerAds = withAdMetaList(await HomeLandBanner.find({ ...activeAdFilter(), userId }));
     // Step 3: Return the success response
     res
       .status(200)
@@ -181,10 +176,7 @@ export const getHomeLandBannerAdsByUserIdAndCategory = async (
     }
 
     // Step 3: Fetch the HomeLandBanner ads for that user and category
-    const homeLandBannerAds = await HomeLandBanner.find({
-      userId,
-      category,
-    });
+    const homeLandBannerAds = withAdMetaList(await HomeLandBanner.find({ ...activeAdFilter(), userId, category }));
 
     // Step 4: Check if any ads are found
     if (homeLandBannerAds.length === 0) {
@@ -234,7 +226,7 @@ export const getAllHomeLandBannersByCategory = async (req, res, next) => {
     }
 
     // Step 2: Fetch all HomeLandBanner ads for the given category
-    const banners = await HomeLandBanner.find({ category });
+    const banners = withAdMetaList(await HomeLandBanner.find({ ...activeAdFilter(), category }));
 
     // Step 3: Check if any ads are found
     if (banners.length === 0) {
@@ -263,13 +255,28 @@ export const getAllHomeLandBannersByCategory = async (req, res, next) => {
 // Update HomeBanner ad by userId and homeLandAdId (from req.body)
 export const updateHomeLandBannerAdByUserIdAndAdId = async (req, res, next) => {
   const { userId } = req.params;
-  const { adId, ...updateData } = req.body; // Extract homeLandAdId and updateData from req.body
+  const { adId, ...body } = req.body;
+  const updateData = stripProtectedAdFields(body);
 
   try {
     // Step 1: Check if the user exists
     const user = await User.findById(userId);
     if (!user) {
       return res.status(404).json(new ApiResponse(404, null, "User not found"));
+    }
+
+    // Owners can edit an ad only within 24 hours of posting it
+    const existingAd = await HomeLandBanner.findOne({ userId, _id: adId });
+    if (existingAd && !isEditWindowOpen(existingAd)) {
+      return res
+        .status(403)
+        .json(
+          new ApiResponse(
+            403,
+            null,
+            "Ads can only be edited within 24 hours of posting"
+          )
+        );
     }
 
     // Step 2: Update the HomeBanner ad using userId and homeLandAdId
@@ -305,7 +312,7 @@ export const updateHomeLandBannerAdByUserIdAndAdId = async (req, res, next) => {
       .json(
         new ApiResponse(
           200,
-          homeLandBannerAd,
+          withAdMeta(homeLandBannerAd),
           "HomeLandBanner ad updated successfully"
         )
       );

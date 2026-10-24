@@ -20,6 +20,10 @@ import {
   refreshAccessToken,
   resendOTP,
   updateUserById,
+  renewAdvertisement,
+  renewLocalService,
+  getAvailableAdCredits,
+  getExpiringAds,
 } from "../../controllers/auth/user.controller.js";
 import { verifyJWT } from "./../../middlewares/auth.middleware.js";
 const router = Router();
@@ -33,6 +37,10 @@ router.post('/ads-subscription/buy', buyAdSubscription);
 router.post('/matrimony-subscription/buy', buyMatrimonySubscription);
 router.post('/dating-subscription/buy', buyDatingSubscription);
 router.post('/local-subscription/buy', buyLocalSubscription);
+router.post('/ads-subscription/renew', renewAdvertisement);
+router.post('/local-subscription/renew', renewLocalService);
+router.get('/ad-credits/:userId', getAvailableAdCredits);
+router.get('/expiring-ads/:userId', getExpiringAds);
 router.route("/userWallet/addBalance/:userId").patch(addWalletBalance);
 router.get('/wallet-balance/:userId', getWalletBalanceByUserId);
 router.get('/transaction-history/:userId', getTransactionHistoryByUserId);

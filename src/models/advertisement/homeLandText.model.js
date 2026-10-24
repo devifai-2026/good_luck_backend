@@ -1,4 +1,5 @@
 import mongoose, { Schema } from "mongoose";
+import { adValidityFields } from "./adValidity.fields.js";
 
 // Define the HomeTextSchema
 const homeLandTextSchema = new Schema(
@@ -52,6 +53,7 @@ const homeLandTextSchema = new Schema(
       enum: ["Home", "Land"],
       required: [true, "Category is required."],
     },
+    ...adValidityFields,
   },
   { timestamps: true }
 );

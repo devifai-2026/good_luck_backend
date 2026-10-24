@@ -6,7 +6,9 @@ import {
   getAllHomeLandTextAdsByCategory,
   getHomeLandTextAdsByUserId,
   getHomeLandTextAdsByUserIdAndCategory,
-  updateHomeLandTextAdByUserIdAndAdId
+  updateHomeLandTextAdByUserIdAndAdId,
+  adminCreateHomeLandTextAd,
+  adminUpdateHomeLandTextAd,
 } from "../../controllers/advertisement/homeLandText.controller.js";
 
 const router = express.Router();
@@ -37,5 +39,9 @@ router.patch("/update/:userId", updateHomeLandTextAdByUserIdAndAdId);
 
 // Route to delete HomeText ad by userId
 router.delete("/delete/:userId/:adId", deleteHomeLandTextAdByUserIdAndAdId);
+
+// Admin panel: create without payment / edit without the owner's 24h window
+router.post("/admin/create", adminCreateHomeLandTextAd);
+router.patch("/admin/update", adminUpdateHomeLandTextAd);
 
 export default router;

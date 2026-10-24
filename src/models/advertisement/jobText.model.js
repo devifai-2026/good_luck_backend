@@ -1,4 +1,5 @@
 import mongoose, { Schema } from "mongoose";
+import { adValidityFields } from "./adValidity.fields.js";
 
 // Define the HomeTextSchema
 const jobTextSchema = new Schema(
@@ -67,6 +68,7 @@ const jobTextSchema = new Schema(
       enum: ["Govt", "Private"],
       required: [true, "Category is required."],
     },
+    ...adValidityFields,
   },
   { timestamps: true }
 );

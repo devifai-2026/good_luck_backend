@@ -21,12 +21,24 @@ import { validatePhoneNumber } from "../../utils/validatePhoneNumber.js";
 import { MatrimonySubscription } from "../../models/subscription/matrimony.subscription.js";
 import { DatingSubscription } from "../../models/subscription/dating.subscription.js";
 import { LocalSubscription } from "../../models/subscription/localserviceSubscription.js";
+import mongoose from "mongoose";
+import { AdCredit } from "../../models/subscription/adCredit.model.js";
+import { LocalServiceCategory } from "../../models/local services/localserviceCategory.model.js";
 import sendNotification from "../../utils/onesignal.js";
 import generateUniquePromoCode from "../../utils/generatePromocode.js";
 import {
   verifyRazorpaySignature,
   fetchAndVerifyPaidAmount,
 } from "../../utils/razorpayVerify.js";
+import {
+  AD_CATEGORIES,
+  AD_CREDIT_SCOPE,
+  AD_MODELS,
+  activeAdFilter,
+  addMonths,
+  findExpiringAdsForUser,
+  withAdMeta,
+} from "../../utils/adValidity.js";
 
 // Helper to generate access and refresh tokens
 const generateAccessAndRefreshToken = async (authId) => {
@@ -1276,108 +1288,18 @@ const updateUserById = asyncHandler(async (req, res) => {
   }
 });
 
-// Buy Ad Subscription (Silver/Gold/Platinum tiers, same as Matrimony/Dating)
-const buyAdSubscription = asyncHandler(async (req, res) => {
-  const { userId, tier, paymentId, orderId, signature, promoCode } = req.body;
-
-  const subscription = await purchaseTierSubscription({
-    userId,
-    tier,
-    paymentId,
-    orderId,
-    signature,
-    SubscriptionConfigModel: AdSubscription,
-    ProfileModel: null,
-    subscriptionField: "adSubscription",
-    serviceLabel: "advertisement",
-  });
-
-  // Optional affiliate/astrologer promo code (advertisement-only feature).
-  // The payment already moved via Razorpay above, so an invalid/unknown
-  // promo code just skips the bonus commission rather than failing the
-  // whole purchase.
-  // Promo codes are 4-digit numbers; anything else (e.g. "ABCD") would throw a
-  // CastError on Astrologer.promo_code/User.adSubscription.promo_code (Number)
-  // AFTER the user has already paid, so treat it as "no promo" instead.
-  if (promoCode && /^\d+$/.test(String(promoCode).trim())) {
-    const affiliate = await AffiliateMarketer.findOne({
-      promo_code: String(promoCode).trim(),
-    });
-    const astrologer = affiliate
-      ? null
-      : await Astrologer.findOne({ promo_code: Number(promoCode) });
-    const promoUser = affiliate || astrologer;
-
-    // A promoter can't earn commission on their own purchase.
-    const isOwnPromoCode =
-      promoUser && String(promoUser.userId) === String(userId);
-
-    if (promoUser && !isOwnPromoCode) {
-      // Redirect 20% of the commission purchaseTierSubscription just
-      // credited to the admin over to the promo user instead.
-      const promoUserCommission = 0.2 * subscription.price;
-
-      const admin = await Admin.findOne();
-      if (admin) {
-        admin.wallet.balance -= promoUserCommission;
-        admin.wallet.transactionHistory.push({
-          type: "debit",
-          debit_type: "advertisement",
-          amount: promoUserCommission,
-          description: "Promo code commission redirected to promoter",
-          reference: promoCode,
-          transactionId: paymentId,
-        });
-        await admin.save();
-      }
-
-      promoUser.wallet.balance += promoUserCommission;
-      promoUser.wallet.transactionHistory.push({
-        type: "credit",
-        credit_type: "advertisement",
-        amount: promoUserCommission,
-        description: "Commission from ad subscription",
-        reference: promoCode,
-        transactionId: paymentId,
-      });
-      await promoUser.save();
-
-      await User.findByIdAndUpdate(userId, {
-        "adSubscription.isPromoApplied": true,
-        "adSubscription.promo_code": promoCode,
-      });
-      subscription.isPromoApplied = true;
-      subscription.promo_code = promoCode;
-    }
-  }
-
-  return res
-    .status(200)
-    .json(
-      new ApiResponse(
-        200,
-        { subscription },
-        "Ad subscription purchased successfully."
-      )
-    );
-});
-
 const VALID_TIERS = ["silver", "gold", "platinum"];
 
-// Shared purchase flow for Matrimony/Dating's Silver/Gold/Platinum tiers.
-// Verifies the Razorpay payment (signature + actually captured amount) before
-// granting the tier — price/duration/isPremium/isTrusted always come from the
-// server-side subscription config, never from the client.
-const purchaseTierSubscription = async ({
+// Verifies the Razorpay payment (signature + actually captured amount) for a
+// Silver/Gold/Platinum tier. Price/duration/isPremium/isTrusted always come
+// from the server-side subscription config, never from the client.
+const verifyTierPayment = async ({
   userId,
   tier,
   paymentId,
   orderId,
   signature,
   SubscriptionConfigModel,
-  ProfileModel,
-  subscriptionField,
-  serviceLabel,
 }) => {
   if (!userId || !tier || !paymentId || !orderId || !signature) {
     throw new ApiError(
@@ -1401,7 +1323,6 @@ const purchaseTierSubscription = async ({
   }
 
   const tierConfig = subscriptionPlans[tier];
-  const { price, durationInMonths, isPremium, isTrusted } = tierConfig;
 
   if (!verifyRazorpaySignature({ orderId, paymentId, signature })) {
     throw new ApiError(400, "Payment verification failed. Invalid signature.");
@@ -1416,17 +1337,19 @@ const purchaseTierSubscription = async ({
     throw new ApiError(400, "This payment has already been used.");
   }
 
-  if (!(await fetchAndVerifyPaidAmount(paymentId, price))) {
+  if (!(await fetchAndVerifyPaidAmount(paymentId, tierConfig.price))) {
     throw new ApiError(
       400,
       "Payment verification failed. Paid amount does not match the plan price."
     );
   }
 
-  const startDate = new Date();
-  const endDate = new Date(startDate);
-  endDate.setMonth(endDate.getMonth() + durationInMonths);
+  return { user, subscriptionPlans, tierConfig };
+};
 
+// Records a verified tier payment: user's debit entry (which also blocks
+// replaying the paymentId), superNote, and the admin's credit. Saves the user.
+const recordTierPayment = async ({ user, tier, price, paymentId, serviceLabel }) => {
   const tierLabel = tier.charAt(0).toUpperCase() + tier.slice(1);
 
   user.wallet.transactionHistory.push({
@@ -1437,23 +1360,6 @@ const purchaseTierSubscription = async ({
     reference: tier,
     transactionId: paymentId,
   });
-
-  // Renewing must not wipe the list of ads the user already posted
-  // (only adSubscription has adsDetails).
-  const existingAdsDetails = user[subscriptionField]?.adsDetails;
-
-  user[subscriptionField] = {
-    ...(existingAdsDetails ? { adsDetails: existingAdsDetails } : {}),
-    plan: subscriptionPlans._id,
-    isSubscribed: true,
-    tier,
-    isPremium,
-    isTrusted,
-    category: `${tierLabel} (${durationInMonths} month${durationInMonths > 1 ? "s" : ""})`,
-    startDate,
-    endDate,
-    price,
-  };
 
   user.superNote = (Number(user.superNote) || 0) + Number(price);
 
@@ -1474,9 +1380,49 @@ const purchaseTierSubscription = async ({
     });
     await admin.save();
   }
+};
 
-  // Keep the profile document's badges in sync, if this service has one
-  // (Matrimony/Dating do; Advertisement/Local subscriptions don't).
+// Shared purchase flow for Matrimony/Dating's Silver/Gold/Platinum tiers.
+const purchaseTierSubscription = async ({
+  userId,
+  tier,
+  paymentId,
+  orderId,
+  signature,
+  SubscriptionConfigModel,
+  ProfileModel,
+  subscriptionField,
+  serviceLabel,
+}) => {
+  const { user, subscriptionPlans, tierConfig } = await verifyTierPayment({
+    userId,
+    tier,
+    paymentId,
+    orderId,
+    signature,
+    SubscriptionConfigModel,
+  });
+  const { price, durationInMonths, isPremium, isTrusted } = tierConfig;
+
+  const startDate = new Date();
+  const endDate = addMonths(startDate, durationInMonths);
+  const tierLabel = tier.charAt(0).toUpperCase() + tier.slice(1);
+
+  user[subscriptionField] = {
+    plan: subscriptionPlans._id,
+    isSubscribed: true,
+    tier,
+    isPremium,
+    isTrusted,
+    category: `${tierLabel} (${durationInMonths} month${durationInMonths > 1 ? "s" : ""})`,
+    startDate,
+    endDate,
+    price,
+  };
+
+  await recordTierPayment({ user, tier, price, paymentId, serviceLabel });
+
+  // Keep the profile document's badges in sync
   if (ProfileModel) {
     await ProfileModel.findOneAndUpdate(
       { userId },
@@ -1491,6 +1437,300 @@ const purchaseTierSubscription = async ({
 
   return user[subscriptionField];
 };
+
+// Optional affiliate/astrologer promo code (advertisement-only feature):
+// redirects 20% of the admin's commission to the promoter. The payment has
+// already moved via Razorpay, so an invalid/unknown code just skips the
+// bonus rather than failing the purchase. Returns whether it was applied.
+const applyAdPromoCode = async ({ promoCode, userId, price, paymentId }) => {
+  // Promo codes are 4-digit numbers; anything else (e.g. "ABCD") would throw a
+  // CastError on Astrologer.promo_code (Number) AFTER the user has already
+  // paid, so treat it as "no promo" instead.
+  if (!promoCode || !/^\d+$/.test(String(promoCode).trim())) return false;
+
+  const affiliate = await AffiliateMarketer.findOne({
+    promo_code: String(promoCode).trim(),
+  });
+  const astrologer = affiliate
+    ? null
+    : await Astrologer.findOne({ promo_code: Number(promoCode) });
+  const promoUser = affiliate || astrologer;
+
+  // A promoter can't earn commission on their own purchase.
+  if (!promoUser || String(promoUser.userId) === String(userId)) return false;
+
+  const promoUserCommission = 0.2 * price;
+
+  const admin = await Admin.findOne();
+  if (admin) {
+    admin.wallet.balance -= promoUserCommission;
+    admin.wallet.transactionHistory.push({
+      type: "debit",
+      debit_type: "advertisement",
+      amount: promoUserCommission,
+      description: "Promo code commission redirected to promoter",
+      reference: promoCode,
+      transactionId: paymentId,
+    });
+    await admin.save();
+  }
+
+  promoUser.wallet.balance += promoUserCommission;
+  promoUser.wallet.transactionHistory.push({
+    type: "credit",
+    credit_type: "advertisement",
+    amount: promoUserCommission,
+    description: "Commission from ad subscription",
+    reference: promoCode,
+    transactionId: paymentId,
+  });
+  await promoUser.save();
+
+  return true;
+};
+
+const AD_SERVICE_CONFIG = {
+  advertisement: {
+    SubscriptionConfigModel: AdSubscription,
+    serviceLabel: "advertisement",
+  },
+  localService: {
+    SubscriptionConfigModel: LocalSubscription,
+    serviceLabel: "Local Service",
+  },
+};
+
+const assertValidAdCategory = async (service, category) => {
+  if (service === "advertisement") {
+    if (!AD_CATEGORIES.includes(category)) {
+      throw new ApiError(400, `Category must be one of: ${AD_CATEGORIES.join(", ")}.`);
+    }
+    return;
+  }
+
+  if (
+    !category ||
+    !mongoose.Types.ObjectId.isValid(category) ||
+    !(await LocalServiceCategory.exists({ _id: category }))
+  ) {
+    throw new ApiError(400, "A valid local service category is required.");
+  }
+};
+
+// Verifies + records the payment and stores the paid slot as an AdCredit.
+const grantAdCredit = async ({
+  service,
+  userId,
+  category,
+  tier,
+  paymentId,
+  orderId,
+  signature,
+  promoCode,
+}) => {
+  const { SubscriptionConfigModel, serviceLabel } = AD_SERVICE_CONFIG[service];
+
+  const { user, tierConfig } = await verifyTierPayment({
+    userId,
+    tier,
+    paymentId,
+    orderId,
+    signature,
+    SubscriptionConfigModel,
+  });
+  const { price, durationInMonths, isPremium, isTrusted } = tierConfig;
+
+  await recordTierPayment({ user, tier, price, paymentId, serviceLabel });
+
+  const isPromoApplied =
+    service === "advertisement" &&
+    (await applyAdPromoCode({ promoCode, userId, price, paymentId }));
+
+  return AdCredit.create({
+    userId,
+    service,
+    category: String(category),
+    tier,
+    price,
+    durationInMonths,
+    isPremium,
+    isTrusted,
+    paymentId,
+    isPromoApplied,
+    ...(isPromoApplied ? { promo_code: Number(promoCode) } : {}),
+  });
+};
+
+// Advertisement and Local Service are pay-per-ad: every purchase grants one
+// credit for the chosen category, and each ad created consumes one credit.
+const buildBuyAdCredit = (service) =>
+  asyncHandler(async (req, res) => {
+    const { userId, category, tier, paymentId, orderId, signature, promoCode } =
+      req.body;
+
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      throw new ApiError(400, "Invalid user ID.");
+    }
+    await assertValidAdCategory(service, category);
+
+    const credit = await grantAdCredit({
+      service,
+      userId,
+      category,
+      tier,
+      paymentId,
+      orderId,
+      signature,
+      promoCode,
+    });
+
+    return res
+      .status(200)
+      .json(
+        new ApiResponse(
+          200,
+          { credit },
+          "Payment successful. You can now post your ad."
+        )
+      );
+  });
+
+const buyAdSubscription = buildBuyAdCredit("advertisement");
+export const buyLocalSubscription = buildBuyAdCredit("localService");
+
+// Renewing an ad before it expires keeps it live: the purchased plan's
+// duration is added on top of its current expiry date. If the ad has already
+// been removed by the time the payment arrives, the payment is kept as a
+// credit for the same category so the user can post again without paying.
+const buildRenewAd = (service) =>
+  asyncHandler(async (req, res) => {
+    const { userId, adId, category, tier, paymentId, orderId, signature, promoCode } =
+      req.body;
+    const adType = service === "localService" ? "LocalService" : req.body.adType;
+
+    const Model = AD_MODELS[adType];
+    if (!Model || AD_CREDIT_SCOPE[adType].service !== service) {
+      throw new ApiError(400, "Invalid ad type.");
+    }
+    if (
+      !mongoose.Types.ObjectId.isValid(userId) ||
+      !adId ||
+      !mongoose.Types.ObjectId.isValid(adId)
+    ) {
+      throw new ApiError(400, "A valid user ID and ad ID are required.");
+    }
+
+    const ad = await Model.findOne({ _id: adId, userId, ...activeAdFilter() });
+
+    if (!ad) {
+      const fallbackCategory = AD_CREDIT_SCOPE[adType].category ?? category;
+      await assertValidAdCategory(service, fallbackCategory);
+      const credit = await grantAdCredit({
+        service,
+        userId,
+        category: fallbackCategory,
+        tier,
+        paymentId,
+        orderId,
+        signature,
+        promoCode,
+      });
+      return res
+        .status(200)
+        .json(
+          new ApiResponse(
+            200,
+            { credit, renewed: false },
+            "This ad has already expired. Your payment was saved — you can post a new ad."
+          )
+        );
+    }
+
+    const { SubscriptionConfigModel, serviceLabel } = AD_SERVICE_CONFIG[service];
+    const { user, tierConfig } = await verifyTierPayment({
+      userId,
+      tier,
+      paymentId,
+      orderId,
+      signature,
+      SubscriptionConfigModel,
+    });
+    const { price, durationInMonths, isPremium, isTrusted } = tierConfig;
+
+    await recordTierPayment({ user, tier, price, paymentId, serviceLabel });
+
+    if (service === "advertisement") {
+      await applyAdPromoCode({ promoCode, userId, price, paymentId });
+    }
+
+    const base =
+      ad.expiresAt && new Date(ad.expiresAt) > new Date()
+        ? ad.expiresAt
+        : new Date();
+
+    // updateOne skips full-document validation so older ads that predate a
+    // validator still renew.
+    await Model.updateOne(
+      { _id: ad._id },
+      {
+        expiresAt: addMonths(base, durationInMonths),
+        tier,
+        isPremium,
+        isTrusted,
+      }
+    );
+    const renewedAd = await Model.findById(ad._id);
+
+    return res
+      .status(200)
+      .json(
+        new ApiResponse(
+          200,
+          { ad: withAdMeta(renewedAd), renewed: true },
+          "Ad renewed successfully."
+        )
+      );
+  });
+
+export const renewAdvertisement = buildRenewAd("advertisement");
+export const renewLocalService = buildRenewAd("localService");
+
+// Unused paid credits, optionally narrowed by service/category — the app
+// checks this before opening the "post ad" form.
+export const getAvailableAdCredits = asyncHandler(async (req, res) => {
+  const { userId } = req.params;
+  const { service, category } = req.query;
+
+  if (!mongoose.Types.ObjectId.isValid(userId)) {
+    throw new ApiError(400, "Invalid user ID.");
+  }
+
+  const filter = { userId, status: "available" };
+  if (service) filter.service = service;
+  if (category) filter.category = String(category);
+
+  const credits = await AdCredit.find(filter).sort({ createdAt: 1 }).lean();
+
+  return res
+    .status(200)
+    .json(new ApiResponse(200, credits, "Available ad credits fetched successfully"));
+});
+
+// The user's ads expiring within the next few days, for the renew alert the
+// app shows once each time it is opened.
+export const getExpiringAds = asyncHandler(async (req, res) => {
+  const { userId } = req.params;
+
+  if (!mongoose.Types.ObjectId.isValid(userId)) {
+    throw new ApiError(400, "Invalid user ID.");
+  }
+
+  const ads = await findExpiringAdsForUser(userId);
+
+  return res
+    .status(200)
+    .json(new ApiResponse(200, ads, "Expiring ads fetched successfully"));
+});
 
 // Buy Matrimony Subscription
 const buyMatrimonySubscription = asyncHandler(async (req, res) => {
@@ -1542,33 +1782,6 @@ const buyDatingSubscription = asyncHandler(async (req, res) => {
         200,
         { subscription },
         "Dating subscription purchased successfully."
-      )
-    );
-});
-
-// Buy Local Subscription (Silver/Gold/Platinum tiers, same as Matrimony/Dating)
-export const buyLocalSubscription = asyncHandler(async (req, res) => {
-  const { userId, tier, paymentId, orderId, signature } = req.body;
-
-  const subscription = await purchaseTierSubscription({
-    userId,
-    tier,
-    paymentId,
-    orderId,
-    signature,
-    SubscriptionConfigModel: LocalSubscription,
-    ProfileModel: null,
-    subscriptionField: "localSubscription",
-    serviceLabel: "Local Service",
-  });
-
-  res
-    .status(200)
-    .json(
-      new ApiResponse(
-        200,
-        { subscription },
-        "Local subscription purchased successfully."
       )
     );
 });

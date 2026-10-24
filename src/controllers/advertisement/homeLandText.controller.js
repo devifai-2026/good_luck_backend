@@ -3,7 +3,15 @@ import { ServiceAds } from "../../models/advertisement/service.model.js";
 import { User } from "../../models/auth/user.model.js";
 import { ApiResponse } from "../../utils/apiResponse.js";
 import handleValidationError from "../../utils/validationError.js";
-import { isSubscriptionActive } from "../../utils/tierSubscriptionHelpers.js";
+import {
+  activeAdFilter,
+  buildAdminAdValidityFields,
+  createAdWithCredit,
+  isEditWindowOpen,
+  stripProtectedAdFields,
+  withAdMeta,
+  withAdMetaList,
+} from "../../utils/adValidity.js";
 
 // Create a HomeText ad and a corresponding ServiceAd
 export const createHomeLandTextAd = async (req, res, next) => {
@@ -34,34 +42,41 @@ export const createHomeLandTextAd = async (req, res, next) => {
         .json(new ApiResponse(400, null, "User is not verified"));
     }
 
-    // Step 3: Check if the user has an active subscription
-    if (!isSubscriptionActive(user.adSubscription)) {
+    // Step 3: Create the ad with one of the user's paid credits for this
+    // category — the ad's validity comes from the plan that credit was
+    // bought with. Every ad needs its own payment.
+    const homeLandTextAd = await createAdWithCredit({
+      userId,
+      adType: "HomeLandText",
+      createAd: (validityFields) =>
+        HomeLandText.create({
+          userId,
+          title,
+          city,
+          state,
+          pincode,
+          phone: phone || user.phone, // Use user's phone if not provided
+          price,
+          text_ad_description,
+          total_character,
+          category,
+          ...validityFields,
+        }),
+    });
+
+    if (!homeLandTextAd) {
       return res
         .status(403)
         .json(
           new ApiResponse(
             403,
             null,
-            "User does not have an active subscription to create ads"
+            "Please purchase a plan to post this ad"
           )
         );
     }
 
-    // Step 4: Proceed with the creation of the HomeText ad
-    const homeLandTextAd = await HomeLandText.create({
-      userId,
-      title,
-      city,
-      state,
-      pincode,
-      phone: phone || user.phone, // Use user's phone if not provided
-      price,
-      text_ad_description,
-      total_character,
-      category,
-    });
-
-    // Step 5: Create the corresponding ServiceAd
+    // Step 4: Create the corresponding ServiceAd
     const serviceAd = await ServiceAds.create({
       userId,
       homeAdType: "HomeLandText",
@@ -71,34 +86,14 @@ export const createHomeLandTextAd = async (req, res, next) => {
       generale_ads: null,
     });
 
-    // Step 6: Add the ad ID to the user's adSubscription adsDetails
-    user.adSubscription.adsDetails.push({
-      adType: "HomeLandText",
-      adId: homeLandTextAd._id,
-      details: {
-        title,
-        city,
-        state,
-        pincode,
-        phone: phone || user.phone,
-        price,
-        text_ad_description,
-        total_character,
-        category,
-      },
-    });
-
-    // Save the updated user
-    await user.save();
-
-    // Step 7: Return the success response
+    // Step 5: Return the success response
     res
       .status(201)
       .json(
         new ApiResponse(
           201,
           { homeLandTextAd, serviceAd },
-          "Ad created successfully and added to subscription details"
+          "Ad created successfully"
         )
       );
   } catch (error) {
@@ -117,7 +112,7 @@ export const createHomeLandTextAd = async (req, res, next) => {
 // Get all HomeText ads
 export const getAllHomeLandTextAds = async (req, res, next) => {
   try {
-    const homeLandTextAds = await HomeLandText.find();
+    const homeLandTextAds = withAdMetaList(await HomeLandText.find(activeAdFilter()));
     res
       .status(200)
       .json(
@@ -143,7 +138,7 @@ export const getHomeLandTextAdsByUserId = async (req, res, next) => {
     }
 
     // Step 2: Fetch HomeText ads for the user
-    const homeLandTextAds = await HomeLandText.find({ userId });
+    const homeLandTextAds = withAdMetaList(await HomeLandText.find({ ...activeAdFilter(), userId }));
 
     res
       .status(200)
@@ -184,10 +179,7 @@ export const getHomeLandTextAdsByUserIdAndCategory = async (req, res, next) => {
     }
 
     // Step 3: Fetch the HomeLandText ads for that user and category
-    const homeLandTextAds = await HomeLandText.find({
-      userId,
-      category,
-    });
+    const homeLandTextAds = withAdMetaList(await HomeLandText.find({ ...activeAdFilter(), userId, category }));
 
     // Step 4: Check if any ads are found
     if (homeLandTextAds.length === 0) {
@@ -237,7 +229,7 @@ export const getAllHomeLandTextAdsByCategory = async (req, res, next) => {
     }
 
     // Step 2: Fetch all HomeLandText ads for the given category
-    const textAds = await HomeLandText.find({ category });
+    const textAds = withAdMetaList(await HomeLandText.find({ ...activeAdFilter(), category }));
 
     // Step 3: Check if any ads are found
     if (textAds.length === 0) {
@@ -266,13 +258,28 @@ export const getAllHomeLandTextAdsByCategory = async (req, res, next) => {
 // Update HomeText ad by userId and homeLandAdId (from req.body)
 export const updateHomeLandTextAdByUserIdAndAdId = async (req, res, next) => {
   const { userId } = req.params;
-  const { adId, ...updateData } = req.body; // Extract homeLandAdId and updateData from req.body
+  const { adId, ...body } = req.body;
+  const updateData = stripProtectedAdFields(body);
 
   try {
     // Step 1: Check if the user exists
     const user = await User.findById(userId);
     if (!user) {
       return res.status(404).json(new ApiResponse(404, null, "User not found"));
+    }
+
+    // Owners can edit an ad only within 24 hours of posting it
+    const existingAd = await HomeLandText.findOne({ userId, _id: adId });
+    if (existingAd && !isEditWindowOpen(existingAd)) {
+      return res
+        .status(403)
+        .json(
+          new ApiResponse(
+            403,
+            null,
+            "Ads can only be edited within 24 hours of posting"
+          )
+        );
     }
 
     // Step 2: Update the HomeText ad using userId and homeLandAdId
@@ -308,7 +315,7 @@ export const updateHomeLandTextAdByUserIdAndAdId = async (req, res, next) => {
       .json(
         new ApiResponse(
           200,
-          homeLandTextAd,
+          withAdMeta(homeLandTextAd),
           "HomeLandText ad updated successfully"
         )
       );
@@ -365,6 +372,108 @@ export const deleteHomeLandTextAdByUserIdAndAdId = async (req, res, next) => {
       .status(200)
       .json(new ApiResponse(200, homeLandTextAd, "Ad deleted successfully"));
   } catch (error) {
+    next(error);
+  }
+};
+
+// Admin panel: post a text ad without payment, with a fixed 1-month validity
+export const adminCreateHomeLandTextAd = async (req, res, next) => {
+  const {
+    userId,
+    title,
+    city,
+    state,
+    pincode,
+    phone,
+    price,
+    text_ad_description,
+    total_character,
+    category,
+  } = req.body;
+
+  try {
+    const homeLandTextAd = await HomeLandText.create({
+      userId,
+      title,
+      city,
+      state,
+      pincode,
+      phone,
+      price,
+      text_ad_description,
+      total_character,
+      category,
+      ...buildAdminAdValidityFields(1),
+    });
+
+    const serviceAd = await ServiceAds.create({
+      userId,
+      homeAdType: "HomeLandText",
+      homeLandAdId: homeLandTextAd._id,
+      jobAdType: null,
+      job_ads: null,
+      generale_ads: null,
+    });
+
+    res
+      .status(201)
+      .json(
+        new ApiResponse(
+          201,
+          { homeLandTextAd, serviceAd },
+          "Ad created successfully"
+        )
+      );
+  } catch (error) {
+    if (error.name === "ValidationError") {
+      const errors = handleValidationError(error);
+      res
+        .status(400)
+        .json(new ApiResponse(400, { errors }, "Validation error occurred"));
+    } else {
+      next(error);
+    }
+  }
+};
+
+// Admin panel: edit any text ad — not limited by the owner's 24h edit window
+export const adminUpdateHomeLandTextAd = async (req, res, next) => {
+  const { adId, ...body } = req.body;
+
+  try {
+    const homeLandTextAd = await HomeLandText.findByIdAndUpdate(
+      adId,
+      stripProtectedAdFields(body),
+      { new: true, runValidators: true }
+    );
+
+    if (!homeLandTextAd) {
+      return res
+        .status(404)
+        .json(new ApiResponse(404, null, `No HomeLandText ad found for adId: ${adId}`));
+    }
+
+    res
+      .status(200)
+      .json(
+        new ApiResponse(
+          200,
+          withAdMeta(homeLandTextAd),
+          "HomeLandText ad updated successfully"
+        )
+      );
+  } catch (error) {
+    if (error.name === "ValidationError") {
+      return res
+        .status(400)
+        .json(
+          new ApiResponse(
+            400,
+            handleValidationError(error),
+            "Validation error occurred"
+          )
+        );
+    }
     next(error);
   }
 };

@@ -3,7 +3,14 @@ import { ServiceAds } from "../../models/advertisement/service.model.js";
 import { User } from "../../models/auth/user.model.js";
 import { ApiResponse } from "../../utils/apiResponse.js";
 import handleValidationError from "../../utils/validationError.js";
-import { isSubscriptionActive } from "../../utils/tierSubscriptionHelpers.js";
+import {
+  activeAdFilter,
+  createAdWithCredit,
+  isEditWindowOpen,
+  stripProtectedAdFields,
+  withAdMeta,
+  withAdMetaList,
+} from "../../utils/adValidity.js";
 
 // Create a JobText ad and a corresponding ServiceAd
 export const createJobTextAd = async (req, res, next) => {
@@ -38,38 +45,45 @@ export const createJobTextAd = async (req, res, next) => {
         .json(new ApiResponse(400, null, "User is not verified"));
     }
 
-    // Step 3: Check if the user has an active subscription
-    if (!isSubscriptionActive(user.adSubscription)) {
+    // Step 3: Create the ad with one of the user's paid credits for this
+    // category — the ad's validity comes from the plan that credit was
+    // bought with. Every ad needs its own payment.
+    const jobTextAd = await createAdWithCredit({
+      userId,
+      adType: "JobText",
+      createAd: (validityFields) =>
+        JobText.create({
+          userId,
+          title,
+          salary,
+          company_name,
+          work_location,
+          website,
+          city,
+          state,
+          address,
+          pincode,
+          phone: phone || user.phone, // Use user's phone if not provided
+          text_ad_description,
+          total_character,
+          category,
+          ...validityFields,
+        }),
+    });
+
+    if (!jobTextAd) {
       return res
         .status(403)
         .json(
           new ApiResponse(
             403,
             null,
-            "User does not have an active subscription to create ads"
+            "Please purchase a plan to post this ad"
           )
         );
     }
 
-    // Step 4: Create the JobText ad
-    const jobTextAd = await JobText.create({
-      userId,
-      title,
-      salary,
-      company_name,
-      work_location,
-      website,
-      city,
-      state,
-      address,
-      pincode,
-      phone: phone || user.phone, // Use user's phone if not provided
-      text_ad_description,
-      total_character,
-      category,
-    });
-
-    // Step 5: Automatically create the ServiceAd
+    // Step 4: Automatically create the ServiceAd
     const serviceAd = await ServiceAds.create({
       userId,
       jobAdType: "JobText",
@@ -79,37 +93,14 @@ export const createJobTextAd = async (req, res, next) => {
       generale_ads: null,
     });
 
-    // Step 6: Add the ad ID to the user's adSubscription adsDetails
-    user.adSubscription.adsDetails.push({
-      adType: "JobText",
-      adId: jobTextAd._id,
-      details: {
-        title,
-        company_name,
-        work_location,
-        website,
-        salary,
-        city,
-        state,
-        address,
-        pincode,
-        text_ad_description,
-        total_character,
-        category,
-      },
-    });
-
-    // Save the updated user
-    await user.save();
-
-    // Step 7: Respond with success
+    // Step 5: Respond with success
     res
       .status(201)
       .json(
         new ApiResponse(
           201,
           { jobTextAd, serviceAd },
-          "JobText and ServiceAd created successfully and added to subscription details"
+          "JobText and ServiceAd created successfully"
         )
       );
   } catch (error) {
@@ -128,7 +119,7 @@ export const createJobTextAd = async (req, res, next) => {
 // Get all JobText ads
 export const getAllJobTextAds = async (req, res, next) => {
   try {
-    const jobTextAds = await JobText.find();
+    const jobTextAds = withAdMetaList(await JobText.find(activeAdFilter()));
 
     res
       .status(200)
@@ -148,7 +139,7 @@ export const getAllJobTextAds = async (req, res, next) => {
 export const getJobTextAdsByUserId = async (req, res, next) => {
   const { userId } = req.params;
   try {
-    const jobTextAds = await JobText.find({ userId });
+    const jobTextAds = withAdMetaList(await JobText.find({ ...activeAdFilter(), userId }));
     res
       .status(200)
       .json(
@@ -188,7 +179,7 @@ export const getJobTextAdsByUserIdAndCategory = async (req, res, next) => {
     }
 
     // Step 3: Fetch JobText ads for the user and category
-    const jobTextAds = await JobText.find({ userId, category });
+    const jobTextAds = withAdMetaList(await JobText.find({ ...activeAdFilter(), userId, category }));
 
     // Step 4: Check if any ads are found
     if (jobTextAds.length === 0) {
@@ -237,7 +228,7 @@ export const getAllJobTextAdsByCategory = async (req, res, next) => {
     }
 
     // Step 2: Fetch all JobText ads for the category
-    const jobTextAds = await JobText.find({ category });
+    const jobTextAds = withAdMetaList(await JobText.find({ ...activeAdFilter(), category }));
 
     // Step 3: Check if any ads are found
     if (jobTextAds.length === 0) {
@@ -270,13 +261,28 @@ export const getAllJobTextAdsByCategory = async (req, res, next) => {
 // Update JobText ad by userId and jobTextAdId (from req.body)
 export const updateJobTextAdByUserIdAndAdId = async (req, res, next) => {
   const { userId } = req.params;
-  const { adId, ...updateData } = req.body; // Extract jobTextAdId and updateData from req.body
+  const { adId, ...body } = req.body;
+  const updateData = stripProtectedAdFields(body);
 
   try {
     // Step 1: Check if the user exists
     const user = await User.findById(userId);
     if (!user) {
       return res.status(404).json(new ApiResponse(404, null, "User not found"));
+    }
+
+    // Owners can edit an ad only within 24 hours of posting it
+    const existingAd = await JobText.findOne({ userId, _id: adId });
+    if (existingAd && !isEditWindowOpen(existingAd)) {
+      return res
+        .status(403)
+        .json(
+          new ApiResponse(
+            403,
+            null,
+            "Ads can only be edited within 24 hours of posting"
+          )
+        );
     }
 
     // Step 2: Update the JobText ad using userId and jobTextAdId
@@ -309,7 +315,7 @@ export const updateJobTextAdByUserIdAndAdId = async (req, res, next) => {
     // Step 4: Respond with success
     res
       .status(200)
-      .json(new ApiResponse(200, jobTextAd, "JobText ad updated successfully"));
+      .json(new ApiResponse(200, withAdMeta(jobTextAd), "JobText ad updated successfully"));
   } catch (error) {
     if (error.name === "ValidationError") {
       return res

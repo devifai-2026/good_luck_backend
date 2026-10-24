@@ -4,7 +4,13 @@ import { LocalService } from "../../models/local services/localservice.model.js"
 import { LocalServiceCategory } from "../../models/local services/localserviceCategory.model.js";
 import { ApiResponse } from "../../utils/apiResponse.js";
 import { asyncHandler } from "../../utils/asyncHandler.js";
-import { isSubscriptionActive } from "../../utils/tierSubscriptionHelpers.js";
+import {
+  activeAdFilter,
+  createAdWithCredit,
+  isEditWindowOpen,
+  withAdMeta,
+  withAdMetaList,
+} from "../../utils/adValidity.js";
 
 // Create a Local Service with Subscription Check
 export const createLocalService = asyncHandler(async (req, res, next) => {
@@ -68,38 +74,49 @@ export const createLocalService = asyncHandler(async (req, res, next) => {
         .json(new ApiResponse(404, null, "Category not found"));
     }
 
-    // Check subscription
-    if (!isSubscriptionActive(user.localSubscription)) {
+    // Every service listing needs its own payment: use one of the user's
+    // paid credits for this category. The listing's validity comes from the
+    // plan that credit was bought with.
+    const newService = await createAdWithCredit({
+      userId,
+      adType: "LocalService",
+      category,
+      createAd: (validityFields) =>
+        LocalService.create({
+          userId,
+          authId: user.authId,
+          category,
+          image,
+          contact,
+          city,
+          state,
+          pinCode,
+          address,
+          isAvailable: isAvailable !== undefined ? isAvailable : true,
+          ...validityFields,
+        }),
+    });
+
+    if (!newService) {
       return res
         .status(403)
         .json(
           new ApiResponse(
             403,
             null,
-            "User does not have an active local service subscription"
+            "Please purchase a plan to post a service in this category"
           )
         );
     }
 
-    // Create and save new service
-    const newService = new LocalService({
-      userId,
-      authId: user.authId,
-      category,
-      image,
-      contact,
-      city,
-      state,
-      pinCode,
-      address,
-      isAvailable: isAvailable !== undefined ? isAvailable : true,
-    });
-    await newService.save();
-
     return res
       .status(201)
       .json(
-        new ApiResponse(201, newService, "Local service created successfully")
+        new ApiResponse(
+          201,
+          withAdMeta(newService),
+          "Local service created successfully"
+        )
       );
   } catch (error) {
     next(error);
@@ -121,7 +138,7 @@ export const getAllLocalServices = asyncHandler(async (req, res, next) => {
     } = req.query;
 
     // Build filter object
-    const filter = {};
+    const filter = { ...activeAdFilter() };
 
     if (category && mongoose.Types.ObjectId.isValid(category)) {
       filter.category = category;
@@ -156,11 +173,11 @@ export const getAllLocalServices = asyncHandler(async (req, res, next) => {
     const limitNum = parseInt(limit);
     const skip = (pageNum - 1) * limitNum;
 
-    const services = await LocalService.find(filter)
+    const services = withAdMetaList(await LocalService.find(filter)
       .populate("category", "name icon")
       .sort({ createdAt: -1 })
       .skip(skip)
-      .limit(limitNum);
+      .limit(limitNum));
 
     const totalCount = await LocalService.countDocuments(filter);
     const totalPages = Math.ceil(totalCount / limitNum);
@@ -198,7 +215,10 @@ export const getAllLocalServices = asyncHandler(async (req, res, next) => {
 export const getLocalServiceById = asyncHandler(async (req, res, next) => {
   try {
     const { id } = req.params;
-    const service = await LocalService.findById(id).populate(
+    const service = await LocalService.findOne({
+      _id: id,
+      ...activeAdFilter(),
+    }).populate(
       "category",
       "name"
     );
@@ -212,7 +232,11 @@ export const getLocalServiceById = asyncHandler(async (req, res, next) => {
     res
       .status(200)
       .json(
-        new ApiResponse(200, service, "Local service fetched successfully")
+        new ApiResponse(
+          200,
+          withAdMeta(service),
+          "Local service fetched successfully"
+        )
       );
   } catch (error) {
     next(error);
@@ -220,63 +244,86 @@ export const getLocalServiceById = asyncHandler(async (req, res, next) => {
 });
 
 // Update Local Service by ID
-export const updateLocalService = asyncHandler(async (req, res, next) => {
-  try {
-    const { id } = req.params;
-    const {
-      category,
-      image,
-      contact,
-      isAvailable,
-      city,
-      state,
-      pinCode,
-      address,
-    } = req.body;
+// Owners may edit a listing only within 24h of posting it; the admin panel
+// uses adminUpdateLocalService, which isn't limited by that window.
+const buildUpdateLocalService = ({ enforceEditWindow }) =>
+  asyncHandler(async (req, res, next) => {
+    try {
+      const { id } = req.params;
+      const {
+        category,
+        image,
+        contact,
+        isAvailable,
+        city,
+        state,
+        pinCode,
+        address,
+      } = req.body;
 
-    const existingService = await LocalService.findById(id);
-    if (!existingService) {
-      return res
-        .status(404)
-        .json(new ApiResponse(404, null, "Local service not found"));
-    }
-
-    // Validate PIN code format if provided
-    if (pinCode) {
-      const pinCodeRegex = /^[1-9][0-9]{5}$/;
-      if (!pinCodeRegex.test(pinCode)) {
+      const existingService = await LocalService.findById(id);
+      if (!existingService) {
         return res
-          .status(400)
+          .status(404)
+          .json(new ApiResponse(404, null, "Local service not found"));
+      }
+
+      if (enforceEditWindow && !isEditWindowOpen(existingService)) {
+        return res
+          .status(403)
           .json(
-            new ApiResponse(400, null, "Please enter a valid 6-digit PIN code")
+            new ApiResponse(
+              403,
+              null,
+              "Services can only be edited within 24 hours of posting"
+            )
           );
       }
+
+      // Validate PIN code format if provided
+      if (pinCode) {
+        const pinCodeRegex = /^[1-9][0-9]{5}$/;
+        if (!pinCodeRegex.test(pinCode)) {
+          return res
+            .status(400)
+            .json(
+              new ApiResponse(400, null, "Please enter a valid 6-digit PIN code")
+            );
+        }
+      }
+
+      // Update fields if provided
+      if (category) existingService.category = category;
+      if (image) existingService.image = image;
+      if (contact) existingService.contact = contact;
+      if (isAvailable !== undefined) existingService.isAvailable = isAvailable;
+      if (city) existingService.city = city;
+      if (state) existingService.state = state;
+      if (pinCode) existingService.pinCode = pinCode;
+      if (address) existingService.address = address;
+
+      await existingService.save();
+
+      res
+        .status(200)
+        .json(
+          new ApiResponse(
+            200,
+            withAdMeta(existingService),
+            "Local service updated successfully"
+          )
+        );
+    } catch (error) {
+      next(error);
     }
+  });
 
-    // Update fields if provided
-    if (category) existingService.category = category;
-    if (image) existingService.image = image;
-    if (contact) existingService.contact = contact;
-    if (isAvailable !== undefined) existingService.isAvailable = isAvailable;
-    if (city) existingService.city = city;
-    if (state) existingService.state = state;
-    if (pinCode) existingService.pinCode = pinCode;
-    if (address) existingService.address = address;
+export const updateLocalService = buildUpdateLocalService({
+  enforceEditWindow: true,
+});
 
-    await existingService.save();
-
-    res
-      .status(200)
-      .json(
-        new ApiResponse(
-          200,
-          existingService,
-          "Local service updated successfully"
-        )
-      );
-  } catch (error) {
-    next(error);
-  }
+export const adminUpdateLocalService = buildUpdateLocalService({
+  enforceEditWindow: false,
 });
 
 // Get Local Services by Category ID with location filtering
@@ -294,7 +341,7 @@ export const getLocalServicesByCategory = asyncHandler(
       }
 
       // Build location filter
-      const locationFilter = { category: categoryId };
+      const locationFilter = { ...activeAdFilter(), category: categoryId };
 
       if (city) {
         locationFilter.city = { $regex: city, $options: "i" };
@@ -308,9 +355,9 @@ export const getLocalServicesByCategory = asyncHandler(
         locationFilter.pinCode = pinCode;
       }
 
-      const services = await LocalService.find(locationFilter)
+      const services = withAdMetaList(await LocalService.find(locationFilter)
         .populate("category", "name icon")
-        .sort({ createdAt: -1 });
+        .sort({ createdAt: -1 }));
 
       if (!services.length) {
         return res
@@ -341,7 +388,7 @@ export const searchLocalServicesByLocation = asyncHandler(
     try {
       const { city, state, pinCode, search } = req.query;
 
-      const filter = {};
+      const filter = { ...activeAdFilter() };
 
       if (city) {
         filter.city = { $regex: city, $options: "i" };
@@ -365,9 +412,9 @@ export const searchLocalServicesByLocation = asyncHandler(
         ];
       }
 
-      const services = await LocalService.find(filter)
+      const services = withAdMetaList(await LocalService.find(filter)
         .populate("category", "name icon")
-        .sort({ createdAt: -1 });
+        .sort({ createdAt: -1 }));
 
       if (!services.length) {
         return res
@@ -398,15 +445,18 @@ export const getLocalServicesByCity = asyncHandler(async (req, res, next) => {
     const { city } = req.params;
     const { category } = req.query;
 
-    const filter = { city: { $regex: city, $options: "i" } };
+    const filter = {
+      ...activeAdFilter(),
+      city: { $regex: city, $options: "i" },
+    };
 
     if (category && mongoose.Types.ObjectId.isValid(category)) {
       filter.category = category;
     }
 
-    const services = await LocalService.find(filter)
+    const services = withAdMetaList(await LocalService.find(filter)
       .populate("category", "name icon")
-      .sort({ createdAt: -1 });
+      .sort({ createdAt: -1 }));
 
     if (!services.length) {
       return res
@@ -430,15 +480,18 @@ export const getLocalServicesByState = asyncHandler(async (req, res, next) => {
     const { state } = req.params;
     const { category } = req.query;
 
-    const filter = { state: { $regex: state, $options: "i" } };
+    const filter = {
+      ...activeAdFilter(),
+      state: { $regex: state, $options: "i" },
+    };
 
     if (category && mongoose.Types.ObjectId.isValid(category)) {
       filter.category = category;
     }
 
-    const services = await LocalService.find(filter)
+    const services = withAdMetaList(await LocalService.find(filter)
       .populate("category", "name icon")
-      .sort({ createdAt: -1 });
+      .sort({ createdAt: -1 }));
 
     if (!services.length) {
       return res
@@ -482,7 +535,7 @@ export const filterLocalServices = asyncHandler(async (req, res, next) => {
     const { city, state, address, page = 1, limit = 10 } = req.query;
 
     // Build filter object
-    const filter = {};
+    const filter = { ...activeAdFilter() };
 
     // City filter (case insensitive)
     if (city) {
@@ -505,12 +558,12 @@ export const filterLocalServices = asyncHandler(async (req, res, next) => {
     const skip = (pageNum - 1) * limitNum;
 
     // Find services with filters
-    const services = await LocalService.find(filter)
+    const services = withAdMetaList(await LocalService.find(filter)
       .populate("category", "name icon")
       .populate("userId", "firstName lastName email") // User details
       .sort({ createdAt: -1 })
       .skip(skip)
-      .limit(limitNum);
+      .limit(limitNum));
 
     const totalCount = await LocalService.countDocuments(filter);
     const totalPages = Math.ceil(totalCount / limitNum);

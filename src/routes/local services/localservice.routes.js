@@ -10,6 +10,7 @@ import {
   getLocalServicesByCity,
   getLocalServicesByState,
   filterLocalServices,
+  adminUpdateLocalService,
 } from "../../controllers/local services/localservice.controller.js";
 
 const router = Router();
@@ -20,6 +21,8 @@ router.route("/city/:city").get(getLocalServicesByCity);
 router.route("/state/:state").get(getLocalServicesByState);
 router.route("/category/:categoryId").get(getLocalServicesByCategory);
 router.route("/filter").get(filterLocalServices);
+// Admin panel edit — not limited by the owner's 24h edit window
+router.route("/admin/:id").patch(adminUpdateLocalService);
 router
   .route("/:id")
   .get(getLocalServiceById)

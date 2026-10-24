@@ -1,4 +1,5 @@
 import mongoose, { Schema } from "mongoose";
+import { adValidityFields } from "./adValidity.fields.js";
 
 const jobBannerSchema = new Schema(
   {
@@ -65,6 +66,7 @@ const jobBannerSchema = new Schema(
       enum: ["Govt", "Private"],
       required: [true, "Category is required."],
     },
+    ...adValidityFields,
   },
   { timestamps: true }
 );

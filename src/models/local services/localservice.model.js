@@ -1,4 +1,5 @@
 import mongoose, { Schema } from "mongoose";
+import { adValidityFields } from "../advertisement/adValidity.fields.js";
 
 const LocalServiceSchema = new mongoose.Schema({
   userId: {
@@ -54,6 +55,7 @@ const LocalServiceSchema = new mongoose.Schema({
     type: Date,
     default: Date.now,
   },
+  ...adValidityFields,
 });
 
 export const LocalService = mongoose.model("LocalService", LocalServiceSchema);
