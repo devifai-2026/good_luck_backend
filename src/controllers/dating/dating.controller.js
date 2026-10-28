@@ -10,6 +10,10 @@ import {
   withLiveBadges,
   liveBadgeAddFieldsStage,
 } from "../../utils/subscriptionExpiry.js";
+import {
+  profileBadgesFromSubscription,
+  stripProtectedProfileFields,
+} from "../../utils/tierSubscriptionHelpers.js";
 
 // Create Dating Profile
 export const createDatingProfile = asyncHandler(async (req, res) => {
@@ -87,8 +91,9 @@ export const createDatingProfile = asyncHandler(async (req, res) => {
         orientation,
         interests,
         looking_for,
+        // Plan bought before the profile existed still gives its badges
+        ...profileBadgesFromSubscription(existsUser.datingSubscription),
       });
-      // console.log(newDatingProfile);
 
       await newDatingProfile.save();
 
@@ -248,7 +253,7 @@ export const updateDatingProfileByUserId = asyncHandler(async (req, res) => {
 
     const updatedProfile = await Dating.findOneAndUpdate(
       { userId: id },
-      req.body,
+      stripProtectedProfileFields(req.body),
       { new: true, runValidators: true }
     );
 

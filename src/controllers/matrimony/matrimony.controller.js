@@ -8,6 +8,10 @@ import {
   withLiveBadges,
   liveBadgeAddFieldsStage,
 } from "../../utils/subscriptionExpiry.js";
+import {
+  profileBadgesFromSubscription,
+  stripProtectedProfileFields,
+} from "../../utils/tierSubscriptionHelpers.js";
 
 // Create Matrimony Profile
 export const createMatrimonyProfile = asyncHandler(async (req, res) => {
@@ -77,6 +81,8 @@ export const createMatrimonyProfile = asyncHandler(async (req, res) => {
         searching_for,
         facebookLink: facebookLink || null,
         whatsappNumber: whatsappNumber || existsUser.phone,
+        // Plan bought before the profile existed still gives its badges
+        ...profileBadgesFromSubscription(existsUser.matrimonySubscription),
       });
 
       await newMatrimonyProfile.save();
@@ -299,7 +305,7 @@ export const updateMatrimonyProfileByUserId = asyncHandler(async (req, res) => {
   try {
     const updatedProfile = await Matrimony.findOneAndUpdate(
       { userId: id },
-      req.body,
+      stripProtectedProfileFields(req.body),
       { new: true, runValidators: true }
     );
 

@@ -31,3 +31,35 @@ export const isSubscriptionActive = (subscription) =>
       subscription?.endDate &&
       new Date(subscription.endDate) > new Date()
   );
+
+// Profile badge fields from the user's tier subscription. Users often buy the
+// plan before creating their Matrimony/Dating profile, so the purchase has no
+// profile to update yet — new profiles copy the badges from here instead.
+export const profileBadgesFromSubscription = (subscription) => {
+  if (!isSubscriptionActive(subscription)) return {};
+  return {
+    isPremium: Boolean(subscription.isPremium),
+    isVerified: Boolean(subscription.isTrusted),
+    subscriptionTier: subscription.tier ?? null,
+    subscriptionEndDate: subscription.endDate,
+  };
+};
+
+// Badges are earned only through a verified purchase, so profile updates from
+// the app must never set them (or the ownership ids).
+const PROTECTED_PROFILE_FIELDS = [
+  "_id",
+  "__v",
+  "userId",
+  "authId",
+  "isPremium",
+  "isVerified",
+  "subscriptionTier",
+  "subscriptionEndDate",
+];
+
+export const stripProtectedProfileFields = (body = {}) => {
+  const clean = { ...body };
+  for (const field of PROTECTED_PROFILE_FIELDS) delete clean[field];
+  return clean;
+};

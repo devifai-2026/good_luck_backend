@@ -175,7 +175,7 @@ export const getAllLocalServices = asyncHandler(async (req, res, next) => {
 
     const services = withAdMetaList(await LocalService.find(filter)
       .populate("category", "name icon")
-      .sort({ createdAt: -1 })
+      .sort({ isTrusted: -1, isPremium: -1, createdAt: -1 })
       .skip(skip)
       .limit(limitNum));
 
@@ -268,6 +268,18 @@ const buildUpdateLocalService = ({ enforceEditWindow }) =>
           .json(new ApiResponse(404, null, "Local service not found"));
       }
 
+      // Owners may only edit their own listing
+      if (
+        enforceEditWindow &&
+        String(existingService.userId) !== String(req.body.userId)
+      ) {
+        return res
+          .status(403)
+          .json(
+            new ApiResponse(403, null, "You can only edit your own service")
+          );
+      }
+
       if (enforceEditWindow && !isEditWindowOpen(existingService)) {
         return res
           .status(403)
@@ -293,7 +305,8 @@ const buildUpdateLocalService = ({ enforceEditWindow }) =>
       }
 
       // Update fields if provided
-      if (category) existingService.category = category;
+      // The paid slot belongs to one category, so only admin can move it
+      if (category && !enforceEditWindow) existingService.category = category;
       if (image) existingService.image = image;
       if (contact) existingService.contact = contact;
       if (isAvailable !== undefined) existingService.isAvailable = isAvailable;
@@ -357,7 +370,7 @@ export const getLocalServicesByCategory = asyncHandler(
 
       const services = withAdMetaList(await LocalService.find(locationFilter)
         .populate("category", "name icon")
-        .sort({ createdAt: -1 }));
+        .sort({ isTrusted: -1, isPremium: -1, createdAt: -1 }));
 
       if (!services.length) {
         return res
@@ -414,7 +427,7 @@ export const searchLocalServicesByLocation = asyncHandler(
 
       const services = withAdMetaList(await LocalService.find(filter)
         .populate("category", "name icon")
-        .sort({ createdAt: -1 }));
+        .sort({ isTrusted: -1, isPremium: -1, createdAt: -1 }));
 
       if (!services.length) {
         return res
@@ -456,7 +469,7 @@ export const getLocalServicesByCity = asyncHandler(async (req, res, next) => {
 
     const services = withAdMetaList(await LocalService.find(filter)
       .populate("category", "name icon")
-      .sort({ createdAt: -1 }));
+      .sort({ isTrusted: -1, isPremium: -1, createdAt: -1 }));
 
     if (!services.length) {
       return res
@@ -491,7 +504,7 @@ export const getLocalServicesByState = asyncHandler(async (req, res, next) => {
 
     const services = withAdMetaList(await LocalService.find(filter)
       .populate("category", "name icon")
-      .sort({ createdAt: -1 }));
+      .sort({ isTrusted: -1, isPremium: -1, createdAt: -1 }));
 
     if (!services.length) {
       return res
@@ -561,7 +574,7 @@ export const filterLocalServices = asyncHandler(async (req, res, next) => {
     const services = withAdMetaList(await LocalService.find(filter)
       .populate("category", "name icon")
       .populate("userId", "firstName lastName email") // User details
-      .sort({ createdAt: -1 })
+      .sort({ isTrusted: -1, isPremium: -1, createdAt: -1 })
       .skip(skip)
       .limit(limitNum));
 
