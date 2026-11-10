@@ -1082,7 +1082,16 @@ const logoutUser = asyncHandler(async (req, res) => {
 // Add Balance to User Wallet
 const addWalletBalance = asyncHandler(async (req, res) => {
   const { userId } = req.params;
-  const { description, transactionId } = req.body;
+  const { description } = req.body;
+  // Older app builds sent the whole Razorpay object ({ paymentId, orderId, signature })
+  // as transactionId; accept both shapes so the wallet is always credited.
+  const rawTxn = req.body.transactionId;
+  const transactionId =
+    rawTxn && typeof rawTxn === "object"
+      ? String(rawTxn.paymentId || rawTxn.razorpay_payment_id || "")
+      : rawTxn
+        ? String(rawTxn)
+        : undefined;
   const amount = Number(req.body.amount);
 
   // Check if the required fields are provided
@@ -1099,11 +1108,26 @@ const addWalletBalance = asyncHandler(async (req, res) => {
     throw new ApiError(404, "User not found");
   }
 
+  // Don't credit the same payment twice (e.g. retry after a timeout)
+  if (
+    transactionId &&
+    user.wallet.transactionHistory.some(
+      (t) => t.transactionId === transactionId && t.type === "credit"
+    )
+  ) {
+    return res.status(200).json({
+      success: true,
+      message: "Balance already added for this payment",
+      updatedBalance: user.wallet.balance,
+      transactionHistory: user.wallet.transactionHistory,
+    });
+  }
+
   // Add the balance and create the transaction history entry
   user.wallet.balance += amount;
   user.superNote = (user.superNote || 0) + amount;
   user.wallet.transactionHistory.push({
-    transactionId,
+    ...(transactionId ? { transactionId } : {}),
     type: "credit",
     credit_type: "wallet_recharge",
     amount,

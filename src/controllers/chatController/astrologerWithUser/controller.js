@@ -22,37 +22,54 @@ export async function handleChatRequest(io, data, socket) {
     const { userId, astrologerId, chatType } = data;
     // console.log(userId, astrologerId, chatType);
 
+    // NOTE: all failures go back to the requesting socket as "chat-error".
+    // The app only listens for "chat-error"; a generic "error" event left the
+    // user stuck on "Wait until your astrologer accepts your request" forever.
+    const fail = (message, extra = {}) =>
+      socket.emit("chat-error", { message, ...extra });
+
     // Retrieve the astrologer's details to get the socket ID and status
     const astrologer = await Astrologer.findById(astrologerId);
     if (!astrologer) {
-      return socket.emit("error", { message: "Astrologer not found." });
+      return fail("Astrologer not found.");
     }
 
     // Check if the astrologer is busy or offline
     if (astrologer.status === "busy") {
-      return socket.emit("error", {
-        message: "Astrologer is currently busy.",
-      });
+      return fail("Astrologer is currently busy.");
     }
 
     if (!astrologer.socketId) {
-      return socket.emit("error", { message: "Astrologer is not online." });
+      // Astrologer is not actually connected — fix the stale "available" status
+      if (astrologer.status !== "offline") {
+        astrologer.status = "offline";
+        await astrologer.save();
+      }
+      return fail("Astrologer is not online right now. Please try again later.");
     }
 
     // Retrieve the user's wallet details to check balance
     const user = await User.findById(userId);
     if (!user) {
-      return socket.emit("error", { message: "User not found." });
+      return fail("User not found.");
+    }
+
+    // Keep the user's socketId fresh so later events (accepted / rejected) reach them
+    if (user.socketId !== socket.id) {
+      user.socketId = socket.id;
+      await user.save();
     }
 
     // Get the chat price for the requested chat type
     const costPerMinute = await getChatPrice(chatType, astrologerId);
 
     // Check if the user has sufficient funds
-    if (user.wallet.balance < costPerMinute) {
-      return io
-        .to(user.socketId)
-        .emit("chat-error", { message: "Insufficient funds." });
+    if ((user.wallet?.balance ?? 0) < costPerMinute) {
+      return fail("Insufficient balance. Please recharge your wallet.", {
+        code: "INSUFFICIENT_FUNDS",
+        required: costPerMinute,
+        balance: user.wallet?.balance ?? 0,
+      });
     }
 
     // console.log(costPerMinute);
@@ -94,7 +111,7 @@ export async function handleChatRequest(io, data, socket) {
     );
   } catch (error) {
     console.error("Error handling chat request:", error);
-    socket.emit("error", { message: "Error processing chat request." });
+    socket.emit("chat-error", { message: "Error processing chat request." });
   }
 }
 
@@ -414,37 +431,52 @@ export async function handleCallRequest(io, data, socket) {
       channelId,
     });
 
+    // All failures go back to the requesting socket as "call-error"
+    // (the app does not listen for a generic "error" event).
+    const fail = (message, extra = {}) =>
+      socket.emit("call-error", { message, ...extra });
+
     // Retrieve the astrologer's details to get the socket ID and status
     const astrologer = await Astrologer.findById(astrologerId);
     if (!astrologer) {
-      return socket.emit("error", { message: "Astrologer not found." });
+      return fail("Astrologer not found.");
     }
 
     // Check if the astrologer is busy or offline
     if (astrologer.status === "busy") {
-      return socket.emit("error", {
-        message: "Astrologer is currently busy.",
-      });
+      return fail("Astrologer is currently busy.");
     }
 
     if (!astrologer.socketId) {
-      return socket.emit("error", { message: "Astrologer is not online." });
+      if (astrologer.status !== "offline") {
+        astrologer.status = "offline";
+        await astrologer.save();
+      }
+      return fail("Astrologer is not online right now. Please try again later.");
     }
 
     // Retrieve the user's wallet details to check balance
     const user = await User.findById(userId);
     if (!user) {
-      return socket.emit("error", { message: "User not found." });
+      return fail("User not found.");
+    }
+
+    // Keep the user's socketId fresh so call-details / call-accepted reach them
+    if (user.socketId !== socket.id) {
+      user.socketId = socket.id;
+      await user.save();
     }
 
     // Get the call price for the requested call type
     const costPerMinute = await getChatPrice(callType, astrologerId);
 
     // Check if the user has sufficient funds
-    if (user.wallet.balance < costPerMinute) {
-      return io
-        .to(user.socketId)
-        .emit("call-error", { message: "Insufficient funds." });
+    if ((user.wallet?.balance ?? 0) < costPerMinute) {
+      return fail("Insufficient balance. Please recharge your wallet.", {
+        code: "INSUFFICIENT_FUNDS",
+        required: costPerMinute,
+        balance: user.wallet?.balance ?? 0,
+      });
     }
 
     // Save the call request in the database
@@ -569,7 +601,7 @@ export async function handleCallRequest(io, data, socket) {
     // console.log("✅ Call details sent to user with consistent UIDs");
   } catch (error) {
     console.error("❌ Error handling call request:", error);
-    socket.emit("error", { message: "Error processing call request." });
+    socket.emit("call-error", { message: "Error processing call request." });
   }
 }
 

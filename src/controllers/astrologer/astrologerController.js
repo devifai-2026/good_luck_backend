@@ -553,6 +553,9 @@ export const approveAstrologer = asyncHandler(async (req, res) => {
     adhar_card: astrologerRequest.adhar_card,
     pan_card: astrologerRequest.pan_card,
     promo_code: promoCode,
+    // Not connected yet — becomes "available" when the astrologer app registers its socket
+    status: "offline",
+    socketId: null,
   });
 
   await newAstrologer.save();
@@ -619,8 +622,23 @@ export const getAstrologerRequestStatusByUserId = asyncHandler(async (req, res) 
   // Check if already an approved astrologer
   const astrologer = await Astrologer.findOne({ userId });
   if (astrologer) {
+    // Same shape as the login response so the app can switch straight to the dashboard
     return res.status(200).json(
-      new ApiResponse(200, { status: "approved", astrologerId: astrologer._id }, "Astrologer approved")
+      new ApiResponse(
+        200,
+        {
+          status: "approved",
+          astrologerId: astrologer._id,
+          astrologer: {
+            ...astrologer.toObject(),
+            wallet: {
+              balance: astrologer.wallet?.balance,
+              _id: astrologer.wallet?._id,
+            },
+          },
+        },
+        "Astrologer approved"
+      )
     );
   }
 
